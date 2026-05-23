@@ -33,6 +33,7 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
         is RembgUiState.Success -> EditorScreen(
             workingBitmap = s.workingBitmap,
             displayBitmap = s.displayBitmap,
+            originalBitmap = s.originalBitmap,
             editor = editor,
             onColorChange = vm::setColor,
             onToolChange = vm::setTool,

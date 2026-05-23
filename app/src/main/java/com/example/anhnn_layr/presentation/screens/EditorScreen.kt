@@ -54,6 +54,7 @@ import com.example.anhnn_layr.utils.saveBitmapToGallery
 fun EditorScreen(
     workingBitmap: Bitmap,
     displayBitmap: Bitmap,
+    originalBitmap: Bitmap,
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onToolChange: (EditorTool) -> Unit,
@@ -136,6 +137,7 @@ fun EditorScreen(
                 if (editor.activeTool == EditorTool.ERASE) {
                     EraseCanvas(
                         workingBitmap = displayBitmap,
+                        originalBitmap = originalBitmap,
                         isEraseMode = editor.isEraseMode,
                         brushSize = editor.brushSize,
                         scale = scale,
