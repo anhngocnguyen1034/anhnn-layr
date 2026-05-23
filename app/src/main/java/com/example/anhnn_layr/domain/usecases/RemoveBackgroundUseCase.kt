@@ -2,6 +2,7 @@ package com.example.anhnn_layr.domain.usecases
 
 import android.net.Uri
 import com.example.anhnn_layr.domain.repository.RembgRepository
+import com.example.anhnn_layr.domain.repository.RembgResult
 import javax.inject.Inject
 
 class RemoveBackgroundUseCase @Inject constructor(
@@ -12,5 +13,5 @@ class RemoveBackgroundUseCase @Inject constructor(
         model: String = "u2net",
         postProcess: Boolean = true,
         bgColor: String? = null,
-    ): ByteArray = repository.removeBackground(imageUri, model, postProcess, bgColor)
+    ): RembgResult = repository.removeBackground(imageUri, model, postProcess, bgColor)
 }

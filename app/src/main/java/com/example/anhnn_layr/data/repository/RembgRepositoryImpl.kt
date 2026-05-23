@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import com.example.anhnn_layr.data.datasource.RembgApi
 import com.example.anhnn_layr.domain.repository.RembgRepository
+import com.example.anhnn_layr.domain.repository.RembgResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,8 +31,9 @@ class RembgRepositoryImpl @Inject constructor(
         model: String,
         postProcess: Boolean,
         bgColor: String?,
-    ): ByteArray = withContext(Dispatchers.IO) {
-        val payload = readAndDownscale(imageUri)
+    ): RembgResult = withContext(Dispatchers.IO) {
+        val originalBitmap = readAndDownscale(imageUri)
+        val payload = compressJpeg(originalBitmap)
 
         val part = MultipartBody.Part.createFormData(
             name = "file",
@@ -39,15 +41,17 @@ class RembgRepositoryImpl @Inject constructor(
             body = payload.toRequestBody("image/jpeg".toMediaTypeOrNull()),
         )
 
-        api.removeBackground(
+        val processed = api.removeBackground(
             file = part,
             model = model,
             postProcessMask = postProcess,
             backgroundColor = bgColor,
         ).bytes()
+
+        RembgResult(originalBitmap = originalBitmap, processedBytes = processed)
     }
 
-    private fun readAndDownscale(uri: Uri): ByteArray {
+    private fun readAndDownscale(uri: Uri): Bitmap {
         val resolver = appContext.contentResolver
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -68,12 +72,12 @@ class RembgRepositoryImpl @Inject constructor(
 
         val scaled = scaleToMaxDimension(sampled, MAX_DIMENSION_PX)
         if (scaled !== sampled) sampled.recycle()
+        return scaled
+    }
 
-        return ByteArrayOutputStream().use { out ->
-            scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-            scaled.recycle()
-            out.toByteArray()
-        }
+    private fun compressJpeg(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { out ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+        out.toByteArray()
     }
 
     private fun computeInSampleSize(width: Int, height: Int, maxDim: Int): Int {

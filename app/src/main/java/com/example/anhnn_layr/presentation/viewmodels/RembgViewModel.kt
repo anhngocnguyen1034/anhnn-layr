@@ -1,26 +1,46 @@
 package com.example.anhnn_layr.presentation.viewmodels
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
+import com.example.anhnn_layr.utils.SaveFormat
+import com.example.anhnn_layr.utils.TouchPath
+import com.example.anhnn_layr.utils.buildWorkingBitmap
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 sealed interface RembgUiState {
     data object Idle : RembgUiState
     data object Loading : RembgUiState
-    data class Success(val pngBytes: ByteArray) : RembgUiState {
-        override fun equals(other: Any?): Boolean =
-            this === other || (other is Success && pngBytes.contentEquals(other.pngBytes))
-        override fun hashCode(): Int = pngBytes.contentHashCode()
-    }
+    data class Success(
+        val originalBitmap: Bitmap,
+        val workingBitmap: Bitmap,
+    ) : RembgUiState
     data class Error(val message: String) : RembgUiState
 }
+
+enum class EditorTool { BACKGROUND, ERASE, CROP, TEXT }
+
+data class EditorState(
+    val selectedColor: Color = Color.Transparent,
+    val activeTool: EditorTool = EditorTool.BACKGROUND,
+    val format: SaveFormat = SaveFormat.PNG,
+    val isEraseMode: Boolean = true,
+    val brushSize: Float = 40f,
+    val paths: List<TouchPath> = emptyList(),
+    val redoStack: List<TouchPath> = emptyList(),
+)
 
 @HiltViewModel
 class RembgViewModel @Inject constructor(
@@ -30,12 +50,93 @@ class RembgViewModel @Inject constructor(
     private val _state = MutableStateFlow<RembgUiState>(RembgUiState.Idle)
     val state: StateFlow<RembgUiState> = _state.asStateFlow()
 
+    private val _editor = MutableStateFlow(EditorState())
+    val editor: StateFlow<EditorState> = _editor.asStateFlow()
+
+    private var processedBitmap: Bitmap? = null
+    private var originalBitmap: Bitmap? = null
+
     fun remove(uri: Uri, model: String = "u2net") {
         _state.value = RembgUiState.Loading
+        _editor.value = EditorState()
         viewModelScope.launch {
             runCatching { removeBackground(uri, model = model) }
-                .onSuccess { _state.value = RembgUiState.Success(it) }
-                .onFailure { _state.value = RembgUiState.Error(it.message ?: "Lỗi không xác định") }
+                .onSuccess { result ->
+                    val processed = withContext(Dispatchers.IO) {
+                        BitmapFactory.decodeByteArray(
+                            result.processedBytes, 0, result.processedBytes.size,
+                        )
+                    } ?: run {
+                        _state.value = RembgUiState.Error("Không đọc được ảnh kết quả")
+                        return@onSuccess
+                    }
+                    processedBitmap = processed
+                    originalBitmap = result.originalBitmap
+                    _state.value = RembgUiState.Success(
+                        originalBitmap = result.originalBitmap,
+                        workingBitmap = processed.copy(Bitmap.Config.ARGB_8888, true),
+                    )
+                }
+                .onFailure {
+                    _state.value = RembgUiState.Error(it.message ?: "Lỗi không xác định")
+                }
         }
+    }
+
+    fun setColor(color: Color) = _editor.update {
+        it.copy(
+            selectedColor = color,
+            format = if (color == Color.Transparent) SaveFormat.PNG else it.format,
+        )
+    }
+
+    fun setTool(tool: EditorTool) = _editor.update { it.copy(activeTool = tool) }
+    fun setFormat(format: SaveFormat) = _editor.update { it.copy(format = format) }
+    fun setEraseMode(isErase: Boolean) = _editor.update { it.copy(isEraseMode = isErase) }
+    fun setBrushSize(size: Float) = _editor.update { it.copy(brushSize = size) }
+
+    fun commitPath(touch: TouchPath) {
+        val newPaths = _editor.value.paths + touch
+        _editor.update { it.copy(paths = newPaths, redoStack = emptyList()) }
+        rebuildWorking(newPaths)
+    }
+
+    fun undo() {
+        val cur = _editor.value
+        if (cur.paths.isEmpty()) return
+        val popped = cur.paths.last()
+        val newPaths = cur.paths.dropLast(1)
+        _editor.update { it.copy(paths = newPaths, redoStack = it.redoStack + popped) }
+        rebuildWorking(newPaths)
+    }
+
+    fun redo() {
+        val cur = _editor.value
+        if (cur.redoStack.isEmpty()) return
+        val popped = cur.redoStack.last()
+        val newPaths = cur.paths + popped
+        _editor.update { it.copy(paths = newPaths, redoStack = it.redoStack.dropLast(1)) }
+        rebuildWorking(newPaths)
+    }
+
+    private fun rebuildWorking(paths: List<TouchPath>) {
+        val proc = processedBitmap ?: return
+        val orig = originalBitmap ?: return
+        viewModelScope.launch {
+            val working = withContext(Dispatchers.Default) {
+                buildWorkingBitmap(proc, orig, paths)
+            }
+            val current = _state.value
+            if (current is RembgUiState.Success) {
+                _state.value = current.copy(workingBitmap = working)
+            }
+        }
+    }
+
+    fun reset() {
+        processedBitmap = null
+        originalBitmap = null
+        _state.value = RembgUiState.Idle
+        _editor.value = EditorState()
     }
 }
