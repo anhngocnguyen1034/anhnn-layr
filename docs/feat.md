@@ -1,1 +1,29 @@
-Hi Claude, please implement Feather (Edge Softening) and Zoom & Pan (Pinch to Zoom) features into the existing Jetpack Compose Canvas screen we built for image editing.1. Requirements for Zoom & Pan (Pinch to Zoom)Gesture Handling: Use detectTransformGestures on the Canvas to capture pinch-to-zoom (scale) and two-finger drag (pan/translate). Single-finger drag must be reserved for the Erase/Restore brush.Constraints: Bound the scale factor between 1.0f (min) and 5.0f (max).Coordinate Mapping: Update the drawing logic so that when the user draws while zoomed/panned, the touch coordinates $(x, y)$ are correctly transformed back to the actual Bitmap coordinates, preventing misaligned brush strokes.2. Requirements for Feather (Edge Softening)Core Logic: Add an edge-softening effect to the border of the edited Bitmap to blend the subject smoothly with any background and eliminate jagged edges.Implementation: Use a custom blur algorithm (or a native solution like applying a BlurMaskFilter to the alpha channel mask) to create a progressive gradient transparency at the alpha edges of the bitmap.UI Control: Add a Slider in the control panel to adjust the feather radius dynamically from 0px (sharp edge) to 20px (soft/blurred edge).3. OutputProvide clean, modular, and production-ready Kotlin code that integrates these features into the existing Composable UI and ViewModel. No long explanations needed, just give me the code.
+Hi Claude, please implement Insert Background from Gallery and Background Blur features into our Jetpack Compose image editing application.
+
+1. Requirements for Inserting Background from Gallery
+   Gallery Picker: Use rememberLauncherForActivityResult with PickVisualMedia() to allow the user to select an image from their device gallery.
+
+State Management: Store the selected background image as a backgroundBitmap (Bitmap?) in the ViewModel. If it is null, fallback to the solid color or transparent background.
+
+UI Render: In the Preview Box, render this backgroundBitmap directly behind the transparent processedBitmap (the subject). Ensure the background image is scaled to fit or fill the preview area properly.
+
+2. Requirements for Background Blur
+   Core Logic: Apply a blur effect to the background layer (either the solid color background or the image imported from the gallery).
+
+Implementation: Use a fast blur algorithm (such as a custom Gaussian Blur matrix, or Android's native Toolkit.blur / RenderEffect.createBlurEffect for API 31+) to process the background layer before rendering the subject on top.
+
+UI Control: Add a Slider in the control panel to adjust the blur intensity dynamically from 0 (no blur) to 25 (heavy blur, simulating a DSLR bokeh effect).
+
+3. Final Image Export Update
+   Update the generateFinalBitmap function to correctly composite the layers:
+
+Draw the background image (with the applied blur effect, if any).
+
+Draw the solid background color (if chosen).
+
+Draw the edited subject Bitmap on top.
+
+Save the final merged tệp as a high-quality JPEG/PNG using MediaStore.
+
+4. Output
+   Provide clean, modular, and production-ready Kotlin code that integrates these features into the existing Composable UI and ViewModel. No explanations needed, just give me the code.
