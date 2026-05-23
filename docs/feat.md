@@ -1,29 +1,23 @@
-Hi Claude, please implement Insert Background from Gallery and Background Blur features into our Jetpack Compose image editing application.
+Hi Claude, please implement the Background Blur feature for our Jetpack Compose image editing application. This feature will keep the original image background but blur it out completely to simulate a DSLR bokeh/depth-of-field effect.
 
-1. Requirements for Inserting Background from Gallery
-   Gallery Picker: Use rememberLauncherForActivityResult with PickVisualMedia() to allow the user to select an image from their device gallery.
+1. Requirements for Background Blur Logic
+   Background Layer: The background will be the originalBitmap (the full image before background removal).
 
-State Management: Store the selected background image as a backgroundBitmap (Bitmap?) in the ViewModel. If it is null, fallback to the solid color or transparent background.
+Blur Implementation: Create a helper function to blur the originalBitmap. Use a modern, high-performance blurring approach suitable for Jetpack Compose/Android:
 
-UI Render: In the Preview Box, render this backgroundBitmap directly behind the transparent processedBitmap (the subject). Ensure the background image is scaled to fit or fill the preview area properly.
+For API 31+ (Android 12+): You can use native RenderEffect.createBlurEffect.
 
-2. Requirements for Background Blur
-   Core Logic: Apply a blur effect to the background layer (either the solid color background or the image imported from the gallery).
+For backward compatibility (API 21-30): Implement an efficient Gaussian Blur bitmap processor (e.g., using a custom matrix or a lightweight custom blur shader/toolkit).
 
-Implementation: Use a fast blur algorithm (such as a custom Gaussian Blur matrix, or Android's native Toolkit.blur / RenderEffect.createBlurEffect for API 31+) to process the background layer before rendering the subject on top.
+UI Control: Add a Slider in the control panel to dynamically adjust the blur radius/intensity from 0 (no blur, original image) to 25 (heavy DSLR blur effect).
 
-UI Control: Add a Slider in the control panel to adjust the blur intensity dynamically from 0 (no blur) to 25 (heavy blur, simulating a DSLR bokeh effect).
+State Management: Keep track of the blurIntensity (Float) in the ViewModel and trigger the blur processing asynchronously (using LaunchedEffect or coroutines) to prevent UI freezing on the main thread.
 
-3. Final Image Export Update
-   Update the generateFinalBitmap function to correctly composite the layers:
+2. Canvas Rendering & Image Export Update
+   In the Preview Canvas: 1. Render the blurred originalBitmap at the bottom layer.
+2. Render the edited/transparent processedBitmap (the isolated subject) directly on top, aligned perfectly with the original coordinates.
 
-Draw the background image (with the applied blur effect, if any).
+Update generateFinalBitmap: Modify the final compositing function so that when the user saves the image, the canvas draws the blurred original background first, then stamps the high-res transparent subject bitmap on top before exporting to MediaStore as a high-quality JPEG.
 
-Draw the solid background color (if chosen).
-
-Draw the edited subject Bitmap on top.
-
-Save the final merged tệp as a high-quality JPEG/PNG using MediaStore.
-
-4. Output
-   Provide clean, modular, and production-ready Kotlin code that integrates these features into the existing Composable UI and ViewModel. No explanations needed, just give me the code.
+3. Output
+   Provide clean, modular, and production-ready Kotlin code (ViewModel updates, Blur utility function, and Composable UI changes). No long explanations, just give me the code.
