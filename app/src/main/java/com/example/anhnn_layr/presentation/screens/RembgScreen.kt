@@ -43,6 +43,7 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             onFeatherChange = vm::setFeatherRadius,
             onBackgroundImageSelected = vm::setBackgroundImage,
             onBackgroundBlurChange = vm::setBackgroundBlur,
+            onUseOriginalBackground = vm::useOriginalAsBackground,
             onCommitPath = vm::commitPath,
             onUndo = vm::undo,
             onRedo = vm::redo,

@@ -64,6 +64,7 @@ fun EditorScreen(
     onFeatherChange: (Float) -> Unit,
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
+    onUseOriginalBackground: () -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -103,6 +104,7 @@ fun EditorScreen(
                             backgroundBlur = editor.backgroundBlur,
                             onBackgroundImageSelected = onBackgroundImageSelected,
                             onBackgroundBlurChange = onBackgroundBlurChange,
+                            onUseOriginalBackground = onUseOriginalBackground,
                         )
                         EditorTool.ERASE -> EraseToolPanel(
                             isEraseMode = editor.isEraseMode,

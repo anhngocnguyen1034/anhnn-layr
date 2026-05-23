@@ -108,6 +108,11 @@ class RembgViewModel @Inject constructor(
         rebuildDisplay()
     }
 
+    fun useOriginalAsBackground() {
+        val orig = originalBitmap ?: return
+        setBackgroundImage(orig)
+    }
+
     fun setBackgroundImage(bitmap: Bitmap?) {
         _editor.update { it.copy(backgroundBitmap = bitmap) }
         rebuildBlurredBackground()

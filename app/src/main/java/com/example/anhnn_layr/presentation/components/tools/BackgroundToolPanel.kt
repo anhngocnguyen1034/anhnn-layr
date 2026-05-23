@@ -38,6 +38,7 @@ fun BackgroundToolPanel(
     backgroundBlur: Float,
     onBackgroundImageSelected: (Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
+    onUseOriginalBackground: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val ctx = LocalContext.current
@@ -69,13 +70,14 @@ fun BackgroundToolPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            OutlinedButton(onClick = onUseOriginalBackground) { Text("Ảnh gốc") }
             OutlinedButton(
                 onClick = {
                     picker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
-            ) { Text(if (hasBackgroundImage) "Đổi ảnh nền" else "Ảnh nền từ thư viện") }
+            ) { Text(if (hasBackgroundImage) "Đổi nền" else "Thư viện") }
             if (hasBackgroundImage) {
                 TextButton(onClick = { onBackgroundImageSelected(null) }) { Text("Bỏ") }
             }
