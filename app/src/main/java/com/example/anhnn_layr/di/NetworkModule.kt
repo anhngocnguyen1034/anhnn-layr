@@ -15,7 +15,6 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    // Emulator: http://10.0.2.2:7000/   |   LAN device: http://192.168.1.10:7000/
     private const val BASE_URL = "http://192.168.0.101:7000/"
 
     @Provides
