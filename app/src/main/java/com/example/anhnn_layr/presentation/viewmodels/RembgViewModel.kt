@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.utils.SaveFormat
 import com.example.anhnn_layr.utils.TouchPath
+import com.example.anhnn_layr.utils.applyFeather
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,7 @@ sealed interface RembgUiState {
     data class Success(
         val originalBitmap: Bitmap,
         val workingBitmap: Bitmap,
+        val displayBitmap: Bitmap,
     ) : RembgUiState
     data class Error(val message: String) : RembgUiState
 }
@@ -40,6 +42,7 @@ data class EditorState(
     val brushSize: Float = 40f,
     val paths: List<TouchPath> = emptyList(),
     val redoStack: List<TouchPath> = emptyList(),
+    val featherRadius: Float = 0f,
 )
 
 @HiltViewModel
@@ -72,9 +75,11 @@ class RembgViewModel @Inject constructor(
                     }
                     processedBitmap = processed
                     originalBitmap = result.originalBitmap
+                    val working = processed.copy(Bitmap.Config.ARGB_8888, true)
                     _state.value = RembgUiState.Success(
                         originalBitmap = result.originalBitmap,
-                        workingBitmap = processed.copy(Bitmap.Config.ARGB_8888, true),
+                        workingBitmap = working,
+                        displayBitmap = working,
                     )
                 }
                 .onFailure {
@@ -94,6 +99,10 @@ class RembgViewModel @Inject constructor(
     fun setFormat(format: SaveFormat) = _editor.update { it.copy(format = format) }
     fun setEraseMode(isErase: Boolean) = _editor.update { it.copy(isEraseMode = isErase) }
     fun setBrushSize(size: Float) = _editor.update { it.copy(brushSize = size) }
+    fun setFeatherRadius(radius: Float) {
+        _editor.update { it.copy(featherRadius = radius) }
+        rebuildDisplay()
+    }
 
     fun commitPath(touch: TouchPath) {
         val newPaths = _editor.value.paths + touch
@@ -122,13 +131,29 @@ class RembgViewModel @Inject constructor(
     private fun rebuildWorking(paths: List<TouchPath>) {
         val proc = processedBitmap ?: return
         val orig = originalBitmap ?: return
+        val radius = _editor.value.featherRadius
         viewModelScope.launch {
-            val working = withContext(Dispatchers.Default) {
-                buildWorkingBitmap(proc, orig, paths)
+            val (working, display) = withContext(Dispatchers.Default) {
+                val w = buildWorkingBitmap(proc, orig, paths)
+                w to applyFeather(w, radius)
             }
             val current = _state.value
             if (current is RembgUiState.Success) {
-                _state.value = current.copy(workingBitmap = working)
+                _state.value = current.copy(workingBitmap = working, displayBitmap = display)
+            }
+        }
+    }
+
+    private fun rebuildDisplay() {
+        val current = _state.value as? RembgUiState.Success ?: return
+        val radius = _editor.value.featherRadius
+        viewModelScope.launch {
+            val display = withContext(Dispatchers.Default) {
+                applyFeather(current.workingBitmap, radius)
+            }
+            val now = _state.value
+            if (now is RembgUiState.Success) {
+                _state.value = now.copy(displayBitmap = display)
             }
         }
     }

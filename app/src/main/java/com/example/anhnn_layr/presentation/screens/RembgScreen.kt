@@ -32,12 +32,14 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
         is RembgUiState.Error -> ErrorScreen(message = s.message, onRetry = vm::reset)
         is RembgUiState.Success -> EditorScreen(
             workingBitmap = s.workingBitmap,
+            displayBitmap = s.displayBitmap,
             editor = editor,
             onColorChange = vm::setColor,
             onToolChange = vm::setTool,
             onFormatChange = vm::setFormat,
             onEraseModeChange = vm::setEraseMode,
             onBrushSizeChange = vm::setBrushSize,
+            onFeatherChange = vm::setFeatherRadius,
             onCommitPath = vm::commitPath,
             onUndo = vm::undo,
             onRedo = vm::redo,

@@ -27,8 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -50,12 +53,14 @@ import com.example.anhnn_layr.utils.saveBitmapToGallery
 @Composable
 fun EditorScreen(
     workingBitmap: Bitmap,
+    displayBitmap: Bitmap,
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onToolChange: (EditorTool) -> Unit,
     onFormatChange: (SaveFormat) -> Unit,
     onEraseModeChange: (Boolean) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
+    onFeatherChange: (Float) -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -63,6 +68,8 @@ fun EditorScreen(
 ) {
     val ctx = LocalContext.current
     var showExport by remember { mutableStateOf(false) }
+    var scale by remember(workingBitmap) { mutableStateOf(1f) }
+    var offset by remember(workingBitmap) { mutableStateOf(Offset.Zero) }
 
     Scaffold(
         topBar = {
@@ -87,6 +94,8 @@ fun EditorScreen(
                         EditorTool.BACKGROUND -> BackgroundToolPanel(
                             selected = editor.selectedColor,
                             onSelected = onColorChange,
+                            featherRadius = editor.featherRadius,
+                            onFeatherChange = onFeatherChange,
                         )
                         EditorTool.ERASE -> EraseToolPanel(
                             isEraseMode = editor.isEraseMode,
@@ -120,23 +129,34 @@ fun EditorScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(workingBitmap.width.toFloat() / workingBitmap.height.toFloat())
+                    .aspectRatio(displayBitmap.width.toFloat() / displayBitmap.height.toFloat())
                     .then(bgMod),
                 contentAlignment = Alignment.Center,
             ) {
                 if (editor.activeTool == EditorTool.ERASE) {
                     EraseCanvas(
-                        workingBitmap = workingBitmap,
+                        workingBitmap = displayBitmap,
                         isEraseMode = editor.isEraseMode,
                         brushSize = editor.brushSize,
+                        scale = scale,
+                        offset = offset,
+                        onTransform = { s, o -> scale = s; offset = o },
                         onCommitPath = onCommitPath,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
                     Image(
-                        bitmap = workingBitmap.asImageBitmap(),
+                        bitmap = displayBitmap.asImageBitmap(),
                         contentDescription = "Ảnh đã xoá nền",
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offset.x,
+                                translationY = offset.y,
+                                transformOrigin = TransformOrigin(0f, 0f),
+                            ),
                         contentScale = ContentScale.Fit,
                     )
                 }
@@ -152,7 +172,7 @@ fun EditorScreen(
             onDismiss = { showExport = false },
             onConfirm = {
                 runCatching {
-                    val finalBmp = generateFinalBitmap(workingBitmap, editor.selectedColor)
+                    val finalBmp = generateFinalBitmap(displayBitmap, editor.selectedColor)
                     saveBitmapToGallery(ctx, finalBmp, editor.format)
                 }.onSuccess {
                     Toast.makeText(ctx, "Đã lưu vào Pictures/TayMaySticker", Toast.LENGTH_SHORT).show()
