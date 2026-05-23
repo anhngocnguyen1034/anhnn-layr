@@ -10,6 +10,7 @@ import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.utils.SaveFormat
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.applyFeather
+import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,9 @@ data class EditorState(
     val paths: List<TouchPath> = emptyList(),
     val redoStack: List<TouchPath> = emptyList(),
     val featherRadius: Float = 0f,
+    val backgroundBitmap: Bitmap? = null,
+    val backgroundBlur: Float = 0f,
+    val blurredBackgroundBitmap: Bitmap? = null,
 )
 
 @HiltViewModel
@@ -102,6 +106,30 @@ class RembgViewModel @Inject constructor(
     fun setFeatherRadius(radius: Float) {
         _editor.update { it.copy(featherRadius = radius) }
         rebuildDisplay()
+    }
+
+    fun setBackgroundImage(bitmap: Bitmap?) {
+        _editor.update { it.copy(backgroundBitmap = bitmap) }
+        rebuildBlurredBackground()
+    }
+
+    fun setBackgroundBlur(intensity: Float) {
+        _editor.update { it.copy(backgroundBlur = intensity) }
+        rebuildBlurredBackground()
+    }
+
+    private fun rebuildBlurredBackground() {
+        val current = _editor.value
+        val src = current.backgroundBitmap
+        if (src == null) {
+            _editor.update { it.copy(blurredBackgroundBitmap = null) }
+            return
+        }
+        val intensity = current.backgroundBlur
+        viewModelScope.launch {
+            val blurred = withContext(Dispatchers.Default) { blurBackground(src, intensity) }
+            _editor.update { it.copy(blurredBackgroundBitmap = blurred) }
+        }
     }
 
     fun commitPath(touch: TouchPath) {

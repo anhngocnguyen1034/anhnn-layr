@@ -62,6 +62,8 @@ fun EditorScreen(
     onEraseModeChange: (Boolean) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onFeatherChange: (Float) -> Unit,
+    onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
+    onBackgroundBlurChange: (Float) -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -97,6 +99,10 @@ fun EditorScreen(
                             onSelected = onColorChange,
                             featherRadius = editor.featherRadius,
                             onFeatherChange = onFeatherChange,
+                            hasBackgroundImage = editor.backgroundBitmap != null,
+                            backgroundBlur = editor.backgroundBlur,
+                            onBackgroundImageSelected = onBackgroundImageSelected,
+                            onBackgroundBlurChange = onBackgroundBlurChange,
                         )
                         EditorTool.ERASE -> EraseToolPanel(
                             isEraseMode = editor.isEraseMode,
@@ -123,17 +129,35 @@ fun EditorScreen(
                 .padding(16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            val bgMod = if (editor.selectedColor == Color.Transparent)
-                Modifier.checkerboardBackground()
-            else Modifier.background(editor.selectedColor)
+            val hasBg = editor.blurredBackgroundBitmap != null
+            val baseMod = when {
+                hasBg -> Modifier
+                editor.selectedColor == Color.Transparent -> Modifier.checkerboardBackground()
+                else -> Modifier.background(editor.selectedColor)
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(displayBitmap.width.toFloat() / displayBitmap.height.toFloat())
-                    .then(bgMod),
+                    .then(baseMod),
                 contentAlignment = Alignment.Center,
             ) {
+                editor.blurredBackgroundBitmap?.let { bg ->
+                    Image(
+                        bitmap = bg.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+                if (hasBg && editor.selectedColor != Color.Transparent) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(editor.selectedColor),
+                    )
+                }
                 if (editor.activeTool == EditorTool.ERASE) {
                     EraseCanvas(
                         workingBitmap = displayBitmap,
@@ -174,7 +198,11 @@ fun EditorScreen(
             onDismiss = { showExport = false },
             onConfirm = {
                 runCatching {
-                    val finalBmp = generateFinalBitmap(displayBitmap, editor.selectedColor)
+                    val finalBmp = generateFinalBitmap(
+                        subjectBitmap = displayBitmap,
+                        bgColor = editor.selectedColor,
+                        bgBitmap = editor.blurredBackgroundBitmap,
+                    )
                     saveBitmapToGallery(ctx, finalBmp, editor.format)
                 }.onSuccess {
                     Toast.makeText(ctx, "Đã lưu vào Pictures/TayMaySticker", Toast.LENGTH_SHORT).show()
