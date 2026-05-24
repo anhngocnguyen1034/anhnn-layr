@@ -10,10 +10,12 @@ import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.utils.SaveFormat
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.applyFeather
+import com.example.anhnn_layr.utils.applySubjectEffects
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,11 +31,12 @@ sealed interface RembgUiState {
         val originalBitmap: Bitmap,
         val workingBitmap: Bitmap,
         val displayBitmap: Bitmap,
+        val effectedBitmap: Bitmap,
     ) : RembgUiState
     data class Error(val message: String) : RembgUiState
 }
 
-enum class EditorTool { BACKGROUND, ERASE, CROP, TEXT }
+enum class EditorTool { BACKGROUND, ERASE, EFFECTS, CROP, TEXT }
 
 data class EditorState(
     val selectedColor: Color = Color.Transparent,
@@ -47,6 +50,12 @@ data class EditorState(
     val backgroundBitmap: Bitmap? = null,
     val backgroundBlur: Float = 0f,
     val blurredBackgroundBitmap: Bitmap? = null,
+    val outlineWidth: Float = 0f,
+    val outlineColor: Color = Color.White,
+    val shadowRadius: Float = 0f,
+    val brightness: Float = 0f,
+    val contrast: Float = 0f,
+    val saturation: Float = 0f,
 )
 
 @HiltViewModel
@@ -62,6 +71,7 @@ class RembgViewModel @Inject constructor(
 
     private var processedBitmap: Bitmap? = null
     private var originalBitmap: Bitmap? = null
+    private var effectsJob: Job? = null
 
     fun remove(uri: Uri, model: String = "u2net") {
         _state.value = RembgUiState.Loading
@@ -84,6 +94,7 @@ class RembgViewModel @Inject constructor(
                         originalBitmap = result.originalBitmap,
                         workingBitmap = working,
                         displayBitmap = working,
+                        effectedBitmap = working,
                     )
                 }
                 .onFailure {
@@ -103,9 +114,45 @@ class RembgViewModel @Inject constructor(
     fun setFormat(format: SaveFormat) = _editor.update { it.copy(format = format) }
     fun setEraseMode(isErase: Boolean) = _editor.update { it.copy(isEraseMode = isErase) }
     fun setBrushSize(size: Float) = _editor.update { it.copy(brushSize = size) }
+
     fun setFeatherRadius(radius: Float) {
         _editor.update { it.copy(featherRadius = radius) }
-        rebuildDisplay()
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setOutlineWidth(width: Float) {
+        _editor.update { it.copy(outlineWidth = width) }
+        recomposeEffected()
+    }
+
+    fun setOutlineColor(color: Color) {
+        _editor.update { it.copy(outlineColor = color) }
+        recomposeEffected()
+    }
+
+    fun setShadowRadius(radius: Float) {
+        _editor.update { it.copy(shadowRadius = radius) }
+        recomposeEffected()
+    }
+
+    fun setBrightness(value: Float) {
+        _editor.update { it.copy(brightness = value) }
+        recomposeEffected()
+    }
+
+    fun setContrast(value: Float) {
+        _editor.update { it.copy(contrast = value) }
+        recomposeEffected()
+    }
+
+    fun setSaturation(value: Float) {
+        _editor.update { it.copy(saturation = value) }
+        recomposeEffected()
+    }
+
+    fun useOriginalAsBackground() {
+        val orig = originalBitmap ?: return
+        setBackgroundImage(orig)
     }
 
     fun setBackgroundImage(bitmap: Bitmap?) {
@@ -135,7 +182,7 @@ class RembgViewModel @Inject constructor(
     fun commitPath(touch: TouchPath) {
         val newPaths = _editor.value.paths + touch
         _editor.update { it.copy(paths = newPaths, redoStack = emptyList()) }
-        rebuildWorking(newPaths)
+        recomposeSubject(rebuildWorking = true)
     }
 
     fun undo() {
@@ -144,7 +191,7 @@ class RembgViewModel @Inject constructor(
         val popped = cur.paths.last()
         val newPaths = cur.paths.dropLast(1)
         _editor.update { it.copy(paths = newPaths, redoStack = it.redoStack + popped) }
-        rebuildWorking(newPaths)
+        recomposeSubject(rebuildWorking = true)
     }
 
     fun redo() {
@@ -153,35 +200,62 @@ class RembgViewModel @Inject constructor(
         val popped = cur.redoStack.last()
         val newPaths = cur.paths + popped
         _editor.update { it.copy(paths = newPaths, redoStack = it.redoStack.dropLast(1)) }
-        rebuildWorking(newPaths)
+        recomposeSubject(rebuildWorking = true)
     }
 
-    private fun rebuildWorking(paths: List<TouchPath>) {
+    private fun recomposeSubject(rebuildWorking: Boolean) {
         val proc = processedBitmap ?: return
         val orig = originalBitmap ?: return
-        val radius = _editor.value.featherRadius
-        viewModelScope.launch {
-            val (working, display) = withContext(Dispatchers.Default) {
-                val w = buildWorkingBitmap(proc, orig, paths)
-                w to applyFeather(w, radius)
+        effectsJob?.cancel()
+        effectsJob = viewModelScope.launch {
+            val ed = _editor.value
+            val current = _state.value as? RembgUiState.Success
+            val result = withContext(Dispatchers.Default) {
+                val working = if (rebuildWorking || current == null) {
+                    buildWorkingBitmap(proc, orig, ed.paths)
+                } else current.workingBitmap
+                val display = applyFeather(working, ed.featherRadius)
+                val effected = applySubjectEffects(
+                    subject = display,
+                    outlineWidth = ed.outlineWidth,
+                    outlineColor = ed.outlineColor,
+                    shadowRadius = ed.shadowRadius,
+                    brightness = ed.brightness,
+                    contrast = ed.contrast,
+                    saturation = ed.saturation,
+                )
+                Triple(working, display, effected)
             }
-            val current = _state.value
-            if (current is RembgUiState.Success) {
-                _state.value = current.copy(workingBitmap = working, displayBitmap = display)
+            val now = _state.value
+            if (now is RembgUiState.Success) {
+                _state.value = now.copy(
+                    workingBitmap = result.first,
+                    displayBitmap = result.second,
+                    effectedBitmap = result.third,
+                )
             }
         }
     }
 
-    private fun rebuildDisplay() {
-        val current = _state.value as? RembgUiState.Success ?: return
-        val radius = _editor.value.featherRadius
-        viewModelScope.launch {
-            val display = withContext(Dispatchers.Default) {
-                applyFeather(current.workingBitmap, radius)
+    private fun recomposeEffected() {
+        effectsJob?.cancel()
+        effectsJob = viewModelScope.launch {
+            val current = _state.value as? RembgUiState.Success ?: return@launch
+            val ed = _editor.value
+            val effected = withContext(Dispatchers.Default) {
+                applySubjectEffects(
+                    subject = current.displayBitmap,
+                    outlineWidth = ed.outlineWidth,
+                    outlineColor = ed.outlineColor,
+                    shadowRadius = ed.shadowRadius,
+                    brightness = ed.brightness,
+                    contrast = ed.contrast,
+                    saturation = ed.saturation,
+                )
             }
             val now = _state.value
             if (now is RembgUiState.Success) {
-                _state.value = now.copy(displayBitmap = display)
+                _state.value = now.copy(effectedBitmap = effected)
             }
         }
     }

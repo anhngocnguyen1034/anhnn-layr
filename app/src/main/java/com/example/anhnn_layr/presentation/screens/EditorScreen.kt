@@ -40,6 +40,7 @@ import com.example.anhnn_layr.presentation.components.ExportBottomSheet
 import com.example.anhnn_layr.presentation.components.checkerboardBackground
 import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
 import com.example.anhnn_layr.presentation.components.tools.ComingSoonPanel
+import com.example.anhnn_layr.presentation.components.tools.EffectsToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EraseToolPanel
 import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
@@ -54,6 +55,7 @@ import com.example.anhnn_layr.utils.saveBitmapToGallery
 fun EditorScreen(
     workingBitmap: Bitmap,
     displayBitmap: Bitmap,
+    effectedBitmap: Bitmap,
     originalBitmap: Bitmap,
     editor: EditorState,
     onColorChange: (Color) -> Unit,
@@ -64,6 +66,13 @@ fun EditorScreen(
     onFeatherChange: (Float) -> Unit,
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
+    onUseOriginalBackground: () -> Unit,
+    onOutlineWidthChange: (Float) -> Unit,
+    onOutlineColorChange: (Color) -> Unit,
+    onShadowRadiusChange: (Float) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+    onContrastChange: (Float) -> Unit,
+    onSaturationChange: (Float) -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -103,6 +112,21 @@ fun EditorScreen(
                             backgroundBlur = editor.backgroundBlur,
                             onBackgroundImageSelected = onBackgroundImageSelected,
                             onBackgroundBlurChange = onBackgroundBlurChange,
+                            onUseOriginalBackground = onUseOriginalBackground,
+                        )
+                        EditorTool.EFFECTS -> EffectsToolPanel(
+                            outlineWidth = editor.outlineWidth,
+                            outlineColor = editor.outlineColor,
+                            onOutlineWidthChange = onOutlineWidthChange,
+                            onOutlineColorChange = onOutlineColorChange,
+                            shadowRadius = editor.shadowRadius,
+                            onShadowRadiusChange = onShadowRadiusChange,
+                            brightness = editor.brightness,
+                            contrast = editor.contrast,
+                            saturation = editor.saturation,
+                            onBrightnessChange = onBrightnessChange,
+                            onContrastChange = onContrastChange,
+                            onSaturationChange = onSaturationChange,
                         )
                         EditorTool.ERASE -> EraseToolPanel(
                             isEraseMode = editor.isEraseMode,
@@ -172,7 +196,7 @@ fun EditorScreen(
                     )
                 } else {
                     Image(
-                        bitmap = displayBitmap.asImageBitmap(),
+                        bitmap = effectedBitmap.asImageBitmap(),
                         contentDescription = "Ảnh đã xoá nền",
                         modifier = Modifier
                             .fillMaxSize()
@@ -199,7 +223,7 @@ fun EditorScreen(
             onConfirm = {
                 runCatching {
                     val finalBmp = generateFinalBitmap(
-                        subjectBitmap = displayBitmap,
+                        subjectBitmap = effectedBitmap,
                         bgColor = editor.selectedColor,
                         bgBitmap = editor.blurredBackgroundBitmap,
                     )
