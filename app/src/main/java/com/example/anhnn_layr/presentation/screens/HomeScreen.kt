@@ -45,7 +45,7 @@ fun HomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "Tay Máy Sticker",
+            text = "Anhnn Sticker",
             style = MaterialTheme.typography.headlineMedium.copy(
                 brush = Brush.verticalGradient(listOf(AnhnnPurpleLight, AnhnnPurpleDark)),
                 fontWeight = FontWeight.Bold,
