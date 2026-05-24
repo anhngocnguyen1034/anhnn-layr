@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -49,7 +50,7 @@ fun EraseCanvas(
     onCommitPath: (TouchPath) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var currentPath by remember { mutableStateOf<Path?>(null) }
+    var currentPath by remember { mutableStateOf<Path?>(null, neverEqualPolicy()) }
     var lastPoint by remember { mutableStateOf(Offset.Zero) }
 
     val bmpW = workingBitmap.width.toFloat()
