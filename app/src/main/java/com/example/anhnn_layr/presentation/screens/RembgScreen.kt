@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
@@ -23,10 +24,14 @@ import com.example.anhnn_layr.presentation.viewmodels.RembgViewModel
 fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val editor by vm.editor.collectAsState()
+    val ctx = LocalContext.current
 
     when (val s = state) {
         RembgUiState.Idle -> HomeScreen(
-            onImagePicked = { uri, model -> vm.remove(uri, model) },
+            onImagePicked = { uri, model ->
+                val mime = ctx.contentResolver.getType(uri)
+                vm.remove(uri, model, mime)
+            },
         )
         RembgUiState.Loading -> LoadingScreen()
         is RembgUiState.Error -> ErrorScreen(message = s.message, onRetry = vm::reset)
@@ -38,7 +43,6 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             editor = editor,
             onColorChange = vm::setColor,
             onToolChange = vm::setTool,
-            onFormatChange = vm::setFormat,
             onEraseModeChange = vm::setEraseMode,
             onBrushSizeChange = vm::setBrushSize,
             onFeatherChange = vm::setFeatherRadius,
