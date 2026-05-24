@@ -3,6 +3,7 @@ package com.example.anhnn_layr.presentation.components.tools
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.FormatPaint
@@ -35,6 +36,12 @@ fun ToolTabs(
             onClick = { onSelect(EditorTool.ERASE) },
             icon = { Icon(Icons.Outlined.AutoFixHigh, contentDescription = null) },
             label = { Text("Cọ") },
+        )
+        NavigationBarItem(
+            selected = active == EditorTool.EFFECTS,
+            onClick = { onSelect(EditorTool.EFFECTS) },
+            icon = { Icon(Icons.Outlined.AutoAwesome, contentDescription = null) },
+            label = { Text("FX") },
         )
         NavigationBarItem(
             selected = active == EditorTool.CROP,
