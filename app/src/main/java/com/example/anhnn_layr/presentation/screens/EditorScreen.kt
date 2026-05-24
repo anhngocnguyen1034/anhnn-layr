@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -74,6 +75,7 @@ fun EditorScreen(
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onSaveDraft: () -> Unit,
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -90,6 +92,9 @@ fun EditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onSaveDraft) {
+                        Icon(Icons.Outlined.Bookmark, contentDescription = "Lưu nháp")
+                    }
                     IconButton(onClick = {
                         runCatching {
                             val finalBmp = generateFinalBitmap(

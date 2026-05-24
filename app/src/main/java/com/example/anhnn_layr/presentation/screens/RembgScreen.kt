@@ -1,5 +1,6 @@
 package com.example.anhnn_layr.presentation.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -24,7 +26,14 @@ import com.example.anhnn_layr.presentation.viewmodels.RembgViewModel
 fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val editor by vm.editor.collectAsState()
+    val drafts by vm.drafts.collectAsState()
     val ctx = LocalContext.current
+
+    LaunchedEffect(vm) {
+        vm.messages.collect { msg ->
+            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     when (val s = state) {
         RembgUiState.Idle -> HomeScreen(
@@ -32,6 +41,9 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
                 val mime = ctx.contentResolver.getType(uri)
                 vm.remove(uri, model, mime)
             },
+            drafts = drafts,
+            onOpenDraft = vm::openDraft,
+            onDeleteDraft = vm::deleteDraft,
         )
         RembgUiState.Loading -> LoadingScreen()
         is RembgUiState.Error -> ErrorScreen(message = s.message, onRetry = vm::reset)
@@ -58,6 +70,7 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             onCommitPath = vm::commitPath,
             onUndo = vm::undo,
             onRedo = vm::redo,
+            onSaveDraft = vm::saveCurrentDraft,
             onBack = vm::reset,
         )
     }

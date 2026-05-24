@@ -21,7 +21,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.anhnn_layr.domain.models.DraftSummary
 import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
+import com.example.anhnn_layr.presentation.components.DraftsRow
 import com.example.anhnn_layr.presentation.components.ModelDropdown
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleLight
@@ -29,6 +31,9 @@ import com.example.anhnn_layr.presentation.theme.AnhnnPurpleLight
 @Composable
 fun HomeScreen(
     onImagePicked: (Uri, String) -> Unit,
+    drafts: List<DraftSummary>,
+    onOpenDraft: (String) -> Unit,
+    onDeleteDraft: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedModel by rememberSaveable { mutableStateOf("u2net") }
@@ -67,6 +72,12 @@ fun HomeScreen(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
+        )
+
+        DraftsRow(
+            drafts = drafts,
+            onOpen = onOpenDraft,
+            onDelete = onDeleteDraft,
         )
     }
 }

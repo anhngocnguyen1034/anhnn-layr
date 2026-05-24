@@ -1,24 +1,38 @@
 package com.example.anhnn_layr.presentation.viewmodels
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.anhnn_layr.domain.models.DraftSummary
+import com.example.anhnn_layr.domain.models.EditorStateSnapshot
+import com.example.anhnn_layr.domain.usecases.DeleteDraftUseCase
+import com.example.anhnn_layr.domain.usecases.LoadDraftUseCase
+import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
+import com.example.anhnn_layr.domain.usecases.SaveDraftUseCase
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.applyFeather
 import com.example.anhnn_layr.utils.applySubjectEffects
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,7 +74,12 @@ data class EditorState(
 
 @HiltViewModel
 class RembgViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val removeBackground: RemoveBackgroundUseCase,
+    private val saveDraft: SaveDraftUseCase,
+    private val loadDraft: LoadDraftUseCase,
+    private val deleteDraftUseCase: DeleteDraftUseCase,
+    observeDrafts: ObserveDraftsUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<RembgUiState>(RembgUiState.Idle)
@@ -69,8 +88,15 @@ class RembgViewModel @Inject constructor(
     private val _editor = MutableStateFlow(EditorState())
     val editor: StateFlow<EditorState> = _editor.asStateFlow()
 
+    val drafts: StateFlow<List<DraftSummary>> = observeDrafts()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
+
     private var processedBitmap: Bitmap? = null
     private var originalBitmap: Bitmap? = null
+    private var currentSourceUri: Uri? = null
 
     private val subjectTrigger = Channel<Boolean>(Channel.CONFLATED)
     private val effectsTrigger = Channel<Unit>(Channel.CONFLATED)
@@ -91,6 +117,7 @@ class RembgViewModel @Inject constructor(
     fun remove(uri: Uri, model: String = "u2net", sourceMimeType: String? = null) {
         _state.value = RembgUiState.Loading
         _editor.value = EditorState(sourceMimeType = sourceMimeType)
+        currentSourceUri = uri
         viewModelScope.launch {
             runCatching { removeBackground(uri, model = model) }
                 .onSuccess { result ->
@@ -115,6 +142,63 @@ class RembgViewModel @Inject constructor(
                 .onFailure {
                     _state.value = RembgUiState.Error(it.message ?: "Lỗi không xác định")
                 }
+        }
+    }
+
+    fun saveCurrentDraft() {
+        val proc = processedBitmap ?: return
+        val uri = currentSourceUri ?: return
+        val ed = _editor.value
+        viewModelScope.launch {
+            runCatching {
+                saveDraft(
+                    sourceImageUri = uri,
+                    sourceMimeType = ed.sourceMimeType,
+                    processedBitmap = proc,
+                    editorState = ed.toSnapshot(),
+                    touchPaths = ed.paths,
+                )
+            }.onSuccess { _messages.tryEmit("Đã lưu bản nháp") }
+                .onFailure { _messages.tryEmit("Lưu nháp thất bại: ${it.message}") }
+        }
+    }
+
+    fun openDraft(id: String) {
+        _state.value = RembgUiState.Loading
+        viewModelScope.launch {
+            val snapshot = runCatching { loadDraft(id) }.getOrNull()
+            if (snapshot == null) {
+                _state.value = RembgUiState.Error("Không mở được bản nháp")
+                return@launch
+            }
+            val original = withContext(Dispatchers.IO) {
+                appContext.contentResolver.openInputStream(snapshot.sourceImageUri)?.use {
+                    BitmapFactory.decodeStream(it)
+                }
+            }
+            if (original == null) {
+                _state.value = RembgUiState.Error("Không đọc được ảnh gốc của bản nháp")
+                return@launch
+            }
+            processedBitmap = snapshot.processedBitmap
+            originalBitmap = original
+            currentSourceUri = snapshot.sourceImageUri
+            val working = snapshot.processedBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            _state.value = RembgUiState.Success(
+                originalBitmap = original,
+                workingBitmap = working,
+                displayBitmap = working,
+                effectedBitmap = working,
+            )
+            _editor.value = snapshot.editorState.toEditorState(paths = snapshot.touchPaths)
+            subjectTrigger.trySend(true)
+        }
+    }
+
+    fun deleteDraft(id: String) {
+        viewModelScope.launch {
+            runCatching { deleteDraftUseCase(id) }
+                .onFailure { _messages.tryEmit("Xoá nháp thất bại: ${it.message}") }
         }
     }
 
@@ -274,7 +358,43 @@ class RembgViewModel @Inject constructor(
     fun reset() {
         processedBitmap = null
         originalBitmap = null
+        currentSourceUri = null
         _state.value = RembgUiState.Idle
         _editor.value = EditorState()
     }
 }
+
+private fun EditorState.toSnapshot(): EditorStateSnapshot = EditorStateSnapshot(
+    selectedColorArgb = selectedColor.toArgb().toLong() and 0xFFFFFFFFL,
+    sourceMimeType = sourceMimeType,
+    isEraseMode = isEraseMode,
+    brushSize = brushSize,
+    featherRadius = featherRadius,
+    backgroundBlur = backgroundBlur,
+    outlineWidth = outlineWidth,
+    outlineColorArgb = outlineColor.toArgb().toLong() and 0xFFFFFFFFL,
+    shadowRadius = shadowRadius,
+    brightness = brightness,
+    contrast = contrast,
+    saturation = saturation,
+)
+
+private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorState = EditorState(
+    selectedColor = Color(selectedColorArgb.toInt()),
+    activeTool = EditorTool.BACKGROUND,
+    sourceMimeType = sourceMimeType,
+    isEraseMode = isEraseMode,
+    brushSize = brushSize,
+    paths = paths,
+    redoStack = emptyList(),
+    featherRadius = featherRadius,
+    backgroundBitmap = null,
+    backgroundBlur = backgroundBlur,
+    blurredBackgroundBitmap = null,
+    outlineWidth = outlineWidth,
+    outlineColor = Color(outlineColorArgb.toInt()),
+    shadowRadius = shadowRadius,
+    brightness = brightness,
+    contrast = contrast,
+    saturation = saturation,
+)
