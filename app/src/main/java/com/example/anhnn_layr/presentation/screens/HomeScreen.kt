@@ -31,6 +31,7 @@ import com.example.anhnn_layr.presentation.theme.AnhnnPurpleLight
 @Composable
 fun HomeScreen(
     onImagePicked: (Uri, String) -> Unit,
+    onImagePickedForLasso: (Uri, String) -> Unit,
     drafts: List<DraftSummary>,
     onOpenDraft: (String) -> Unit,
     onDeleteDraft: (String) -> Unit,
@@ -41,6 +42,10 @@ fun HomeScreen(
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> if (uri != null) onImagePicked(uri, selectedModel) }
+
+    val lassoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) onImagePickedForLasso(uri, selectedModel) }
 
     Column(
         modifier = modifier
@@ -69,6 +74,15 @@ fun HomeScreen(
             text = "Chọn ảnh từ thư viện",
             onClick = {
                 picker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+        )
+
+        AnhnnGradientButton(
+            text = "Khoanh vùng để tách",
+            onClick = {
+                lassoPicker.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
