@@ -8,11 +8,19 @@ data class RembgResult(
     val processedBytes: ByteArray,
 )
 
+data class NormalizedBox(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
 interface RembgRepository {
     suspend fun removeBackground(
         imageUri: Uri,
         model: String = "u2net",
         postProcess: Boolean = true,
         bgColor: String? = null,
+        samBox: NormalizedBox? = null,
     ): RembgResult
 }
