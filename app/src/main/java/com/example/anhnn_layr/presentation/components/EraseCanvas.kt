@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -49,8 +50,9 @@ fun EraseCanvas(
     onCommitPath: (TouchPath) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var currentPath by remember { mutableStateOf<Path?>(null) }
+    var currentPath by remember { mutableStateOf<Path?>(null, neverEqualPolicy()) }
     var lastPoint by remember { mutableStateOf(Offset.Zero) }
+    val currentPoints = remember { mutableListOf<Offset>() }
 
     val bmpW = workingBitmap.width.toFloat()
     val bmpH = workingBitmap.height.toFloat()
@@ -81,6 +83,8 @@ fun EraseCanvas(
                     val firstBmp = screenToBitmap(firstChange.position)
                     lastPoint = firstBmp
                     currentPath = Path().apply { moveTo(firstBmp.x, firstBmp.y) }
+                    currentPoints.clear()
+                    currentPoints.add(firstBmp)
                     brushStarted = true
                     firstChange.consume()
 
@@ -117,6 +121,7 @@ fun EraseCanvas(
                             currentPath = currentPath?.apply {
                                 quadraticBezierTo(lastPoint.x, lastPoint.y, mid.x, mid.y)
                             }
+                            currentPoints.add(cur)
                             lastPoint = cur
                             ch.consume()
                         } else {
@@ -124,13 +129,11 @@ fun EraseCanvas(
                         }
                     }
 
-                    if (brushStarted) {
-                        currentPath?.let { p ->
-                            p.lineTo(lastPoint.x, lastPoint.y)
-                            onCommitPath(TouchPath(p, isEraseMode, brushSize))
-                        }
+                    if (brushStarted && currentPoints.isNotEmpty()) {
+                        onCommitPath(TouchPath(currentPoints.toList(), isEraseMode, brushSize))
                     }
                     currentPath = null
+                    currentPoints.clear()
                 }
             },
     ) {

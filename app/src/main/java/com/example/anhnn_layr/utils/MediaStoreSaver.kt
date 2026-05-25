@@ -3,20 +3,44 @@ package com.example.anhnn_layr.utils
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
 import android.provider.MediaStore
 
 private const val RELATIVE_DIR = "Pictures/TayMaySticker"
 
-enum class SaveFormat(val mime: String, val ext: String, val compress: Bitmap.CompressFormat) {
-    PNG("image/png", "png", Bitmap.CompressFormat.PNG),
-    JPEG("image/jpeg", "jpg", Bitmap.CompressFormat.JPEG),
+enum class SaveFormat(val mime: String, val ext: String) {
+    PNG("image/png", "png"),
+    JPEG("image/jpeg", "jpg"),
+    WEBP("image/webp", "webp");
+
+    fun compressFormat(): Bitmap.CompressFormat = when (this) {
+        PNG -> Bitmap.CompressFormat.PNG
+        JPEG -> Bitmap.CompressFormat.JPEG
+        WEBP -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSLESS
+        } else {
+            @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
+        }
+    }
+}
+
+fun pickSaveFormat(sourceMime: String?, hasTransparency: Boolean): SaveFormat {
+    if (hasTransparency) {
+        return if (sourceMime == "image/webp") SaveFormat.WEBP else SaveFormat.PNG
+    }
+    return when (sourceMime) {
+        "image/jpeg", "image/jpg" -> SaveFormat.JPEG
+        "image/webp" -> SaveFormat.WEBP
+        "image/png" -> SaveFormat.PNG
+        else -> SaveFormat.PNG
+    }
 }
 
 fun saveBitmapToGallery(
     ctx: Context,
     bitmap: Bitmap,
     format: SaveFormat,
-    quality: Int = 95,
+    quality: Int = 100,
     displayName: String = "sticker_${System.currentTimeMillis()}.${format.ext}",
 ) {
     val values = ContentValues().apply {
@@ -27,7 +51,7 @@ fun saveBitmapToGallery(
     val uri = ctx.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
         ?: error("Không tạo được file đầu ra")
     ctx.contentResolver.openOutputStream(uri)?.use { out ->
-        bitmap.compress(format.compress, quality, out)
+        bitmap.compress(format.compressFormat(), quality, out)
     } ?: error("Không mở được output stream")
 }
 

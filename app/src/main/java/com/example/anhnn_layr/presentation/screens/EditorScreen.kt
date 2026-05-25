@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -36,7 +37,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.components.EraseCanvas
-import com.example.anhnn_layr.presentation.components.ExportBottomSheet
 import com.example.anhnn_layr.presentation.components.checkerboardBackground
 import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
 import com.example.anhnn_layr.presentation.components.tools.ComingSoonPanel
@@ -45,9 +45,9 @@ import com.example.anhnn_layr.presentation.components.tools.EraseToolPanel
 import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
 import com.example.anhnn_layr.presentation.viewmodels.EditorTool
-import com.example.anhnn_layr.utils.SaveFormat
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.generateFinalBitmap
+import com.example.anhnn_layr.utils.pickSaveFormat
 import com.example.anhnn_layr.utils.saveBitmapToGallery
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,7 +60,6 @@ fun EditorScreen(
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onToolChange: (EditorTool) -> Unit,
-    onFormatChange: (SaveFormat) -> Unit,
     onEraseModeChange: (Boolean) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onFeatherChange: (Float) -> Unit,
@@ -76,10 +75,10 @@ fun EditorScreen(
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onSaveDraft: () -> Unit,
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
-    var showExport by remember { mutableStateOf(false) }
     var scale by remember(workingBitmap) { mutableStateOf(1f) }
     var offset by remember(workingBitmap) { mutableStateOf(Offset.Zero) }
 
@@ -93,7 +92,34 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showExport = true }) {
+                    IconButton(onClick = onSaveDraft) {
+                        Icon(Icons.Outlined.Bookmark, contentDescription = "Lưu nháp")
+                    }
+                    IconButton(onClick = {
+                        runCatching {
+                            val finalBmp = generateFinalBitmap(
+                                subjectBitmap = effectedBitmap,
+                                bgColor = editor.selectedColor,
+                                bgBitmap = editor.blurredBackgroundBitmap,
+                            )
+                            val hasTransparency = editor.selectedColor == Color.Transparent &&
+                                editor.blurredBackgroundBitmap == null
+                            val format = pickSaveFormat(editor.sourceMimeType, hasTransparency)
+                            saveBitmapToGallery(ctx, finalBmp, format)
+                        }.onSuccess {
+                            Toast.makeText(
+                                ctx,
+                                "Đã lưu vào Pictures/TayMaySticker",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }.onFailure {
+                            Toast.makeText(
+                                ctx,
+                                "Lưu thất bại: ${it.message}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }) {
                         Icon(Icons.Outlined.SaveAlt, contentDescription = "Lưu")
                     }
                 },
@@ -214,27 +240,4 @@ fun EditorScreen(
         }
     }
 
-    if (showExport) {
-        ExportBottomSheet(
-            selectedColor = editor.selectedColor,
-            format = editor.format,
-            onFormatChange = onFormatChange,
-            onDismiss = { showExport = false },
-            onConfirm = {
-                runCatching {
-                    val finalBmp = generateFinalBitmap(
-                        subjectBitmap = effectedBitmap,
-                        bgColor = editor.selectedColor,
-                        bgBitmap = editor.blurredBackgroundBitmap,
-                    )
-                    saveBitmapToGallery(ctx, finalBmp, editor.format)
-                }.onSuccess {
-                    Toast.makeText(ctx, "Đã lưu vào Pictures/TayMaySticker", Toast.LENGTH_SHORT).show()
-                    showExport = false
-                }.onFailure {
-                    Toast.makeText(ctx, "Lưu thất bại: ${it.message}", Toast.LENGTH_LONG).show()
-                }
-            },
-        )
-    }
 }
