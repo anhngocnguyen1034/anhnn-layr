@@ -21,6 +21,5 @@ interface RembgApi {
         @Part("om") onlyMask: RequestBody,
         @Part("ppm") postProcessMask: RequestBody,
         @Query("bgc") backgroundColor: String? = null,
-        @Query("extras") extras: String? = null,
     ): ResponseBody
 }

@@ -24,11 +24,11 @@ data class RembgModel(
 )
 
 private val DEFAULT_MODELS = listOf(
-    RembgModel("u2net", "Đa năng, cân bằng tốc độ & chất lượng (mặc định)"),
+    RembgModel("isnet-general-use", "Đa năng, chi tiết viền tốt hơn u2net (mặc định)"),
+    RembgModel("u2net", "Đa năng, cân bằng tốc độ & chất lượng"),
     RembgModel("u2netp", "Phiên bản nhẹ của u2net — nhanh hơn, nhẹ máy"),
     RembgModel("u2net_human_seg", "Tối ưu cho ảnh người (chân dung, cơ thể)"),
     RembgModel("silueta", "Giống u2net nhưng dung lượng nhỏ hơn nhiều"),
-    RembgModel("isnet-general-use", "Đa năng, chi tiết viền tốt hơn u2net"),
     RembgModel("birefnet-general", "Chất lượng cao, tách viền sắc nét (chậm hơn)"),
     RembgModel("birefnet-general-lite", "Bản nhẹ của birefnet — nhanh hơn, chất lượng khá"),
     RembgModel("birefnet-portrait", "Chuyên cho ảnh chân dung, tóc/viền mịn"),

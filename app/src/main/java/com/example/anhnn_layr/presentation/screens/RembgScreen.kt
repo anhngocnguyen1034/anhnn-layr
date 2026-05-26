@@ -70,19 +70,9 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
                 val mime = ctx.contentResolver.getType(uri)
                 vm.remove(uri, model, mime)
             },
-            onImagePickedForLasso = { uri, _ ->
-                val mime = ctx.contentResolver.getType(uri)
-                vm.pickForLasso(uri, sourceMimeType = mime)
-            },
             drafts = drafts,
             onOpenDraft = vm::openDraft,
             onDeleteDraft = vm::deleteDraft,
-        )
-        is RembgUiState.AwaitingLasso -> LassoScreen(
-            sourceUri = s.sourceUri,
-            onConfirm = vm::confirmLasso,
-            onSkip = vm::skipLasso,
-            onCancel = vm::cancelLasso,
         )
         is RembgUiState.Loading -> LoadingScreen(sourceUri = s.sourceUri)
         is RembgUiState.Error -> ErrorScreen(message = s.message, onRetry = vm::reset)

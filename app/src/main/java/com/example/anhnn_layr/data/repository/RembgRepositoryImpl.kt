@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import com.example.anhnn_layr.data.datasource.RembgApi
-import com.example.anhnn_layr.domain.repository.NormalizedBox
 import com.example.anhnn_layr.domain.repository.RembgRepository
 import com.example.anhnn_layr.domain.repository.RembgResult
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -33,7 +32,6 @@ class RembgRepositoryImpl @Inject constructor(
         model: String,
         postProcess: Boolean,
         bgColor: String?,
-        samBox: NormalizedBox?,
     ): RembgResult = withContext(Dispatchers.IO) {
         val originalBitmap = readAndDownscale(imageUri)
         val payload = compressJpeg(originalBitmap)
@@ -44,12 +42,9 @@ class RembgRepositoryImpl @Inject constructor(
             body = payload.toRequestBody("image/jpeg".toMediaTypeOrNull()),
         )
 
-        val effectiveModel = if (samBox != null) "sam" else model
-        val extrasJson = samBox?.let { buildSamPromptJson(it, originalBitmap.width, originalBitmap.height) }
-
         val processed = api.removeBackground(
             file = part,
-            model = effectiveModel.toFormPart(),
+            model = model.toFormPart(),
             alphaMatting = "false".toFormPart(),
             foregroundThreshold = "240".toFormPart(),
             backgroundThreshold = "10".toFormPart(),
@@ -57,7 +52,6 @@ class RembgRepositoryImpl @Inject constructor(
             onlyMask = "false".toFormPart(),
             postProcessMask = postProcess.toString().toFormPart(),
             backgroundColor = bgColor,
-            extras = extrasJson,
         ).bytes()
 
         RembgResult(originalBitmap = originalBitmap, processedBytes = processed)
@@ -65,18 +59,6 @@ class RembgRepositoryImpl @Inject constructor(
 
     private fun String.toFormPart(): RequestBody =
         toRequestBody("text/plain".toMediaTypeOrNull())
-
-    private fun buildSamPromptJson(box: NormalizedBox, w: Int, h: Int): String {
-        val x1 = (box.left.coerceIn(0f, 1f) * w).toInt().coerceIn(0, w - 1)
-        val y1 = (box.top.coerceIn(0f, 1f) * h).toInt().coerceIn(0, h - 1)
-        val x2 = (box.right.coerceIn(0f, 1f) * w).toInt().coerceIn(0, w - 1)
-        val y2 = (box.bottom.coerceIn(0f, 1f) * h).toInt().coerceIn(0, h - 1)
-        val left = minOf(x1, x2)
-        val top = minOf(y1, y2)
-        val right = maxOf(x1, x2)
-        val bottom = maxOf(y1, y2)
-        return """{"sam_prompt":[{"type":"rectangle","data":[$left,$top,$right,$bottom]}]}"""
-    }
 
     private fun readAndDownscale(uri: Uri): Bitmap {
         val resolver = appContext.contentResolver
