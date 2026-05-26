@@ -10,7 +10,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.anhnn_layr.domain.models.DraftSummary
 import com.example.anhnn_layr.domain.models.EditorStateSnapshot
-import com.example.anhnn_layr.domain.repository.NormalizedBox
 import com.example.anhnn_layr.domain.usecases.DeleteDraftUseCase
 import com.example.anhnn_layr.domain.usecases.LoadDraftUseCase
 import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
@@ -41,11 +40,6 @@ import javax.inject.Inject
 
 sealed interface RembgUiState {
     data object Idle : RembgUiState
-    data class AwaitingLasso(
-        val sourceUri: Uri,
-        val model: String,
-        val sourceMimeType: String?,
-    ) : RembgUiState
     data class Loading(val sourceUri: Uri? = null) : RembgUiState
     data class Success(
         val originalBitmap: Bitmap,
@@ -120,35 +114,16 @@ class RembgViewModel @Inject constructor(
         }
     }
 
-    fun pickForLasso(uri: Uri, model: String = "sam", sourceMimeType: String? = null) {
-        _state.value = RembgUiState.AwaitingLasso(uri, model, sourceMimeType)
-    }
-
-    fun cancelLasso() {
-        _state.value = RembgUiState.Idle
-    }
-
-    fun confirmLasso(box: NormalizedBox) {
-        val pending = _state.value as? RembgUiState.AwaitingLasso ?: return
-        remove(pending.sourceUri, pending.model, pending.sourceMimeType, box)
-    }
-
-    fun skipLasso() {
-        val pending = _state.value as? RembgUiState.AwaitingLasso ?: return
-        remove(pending.sourceUri, pending.model, pending.sourceMimeType, null)
-    }
-
     fun remove(
         uri: Uri,
-        model: String = "u2net",
+        model: String = "isnet-general-use",
         sourceMimeType: String? = null,
-        samBox: NormalizedBox? = null,
     ) {
         _state.value = RembgUiState.Loading(sourceUri = uri)
         _editor.value = EditorState(sourceMimeType = sourceMimeType)
         currentSourceUri = uri
         viewModelScope.launch {
-            runCatching { removeBackground(uri, model = model, samBox = samBox) }
+            runCatching { removeBackground(uri, model = model) }
                 .onSuccess { result ->
                     val processed = withContext(Dispatchers.IO) {
                         BitmapFactory.decodeByteArray(

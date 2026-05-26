@@ -1,7 +1,6 @@
 package com.example.anhnn_layr.domain.usecases
 
 import android.net.Uri
-import com.example.anhnn_layr.domain.repository.NormalizedBox
 import com.example.anhnn_layr.domain.repository.RembgRepository
 import com.example.anhnn_layr.domain.repository.RembgResult
 import javax.inject.Inject
@@ -11,9 +10,8 @@ class RemoveBackgroundUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         imageUri: Uri,
-        model: String = "u2net",
+        model: String = "isnet-general-use",
         postProcess: Boolean = true,
         bgColor: String? = null,
-        samBox: NormalizedBox? = null,
-    ): RembgResult = repository.removeBackground(imageUri, model, postProcess, bgColor, samBox)
+    ): RembgResult = repository.removeBackground(imageUri, model, postProcess, bgColor)
 }
