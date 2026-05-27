@@ -11,6 +11,7 @@ fun generateFinalBitmap(
     subjectBitmap: Bitmap,
     bgColor: Color,
     bgBitmap: Bitmap? = null,
+    textStickers: List<TextSticker> = emptyList(),
 ): Bitmap {
     val w = subjectBitmap.width
     val h = subjectBitmap.height
@@ -28,6 +29,7 @@ fun generateFinalBitmap(
     }
 
     canvas.drawBitmap(subjectBitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+    drawTextStickers(canvas, textStickers)
     return out
 }
 
