@@ -3,11 +3,11 @@ package com.example.anhnn_layr.presentation.components.tools
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Redo
@@ -39,13 +39,20 @@ fun EraseToolPanel(
     minBrush: Float = 10f,
     maxBrush: Float = 150f,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ToolPanelColumn(
+        title = "Cọ chỉnh sửa",
+        modifier = modifier,
+        trailing = {
+            IconButton(onClick = onUndo, enabled = canUndo) {
+                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = "Hoàn tác")
+            }
+            IconButton(onClick = onRedo, enabled = canRedo) {
+                Icon(Icons.AutoMirrored.Outlined.Redo, contentDescription = "Làm lại")
+            }
+        },
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -59,15 +66,11 @@ fun EraseToolPanel(
                 onClick = { onModeChange(false) },
                 label = { Text("Khôi phục") },
             )
-            Box(modifier = Modifier.weight(1f))
-            IconButton(onClick = onUndo, enabled = canUndo) {
-                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = "Hoàn tác")
-            }
-            IconButton(onClick = onRedo, enabled = canRedo) {
-                Icon(Icons.AutoMirrored.Outlined.Redo, contentDescription = "Làm lại")
-            }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
                     .size(36.dp),
@@ -83,6 +86,12 @@ fun EraseToolPanel(
                         ),
                 )
             }
+            Text(
+                text = "Kích cỡ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(64.dp),
+            )
             Slider(
                 value = brushSize,
                 onValueChange = onBrushSizeChange,
@@ -92,7 +101,10 @@ fun EraseToolPanel(
             Text(
                 "${brushSize.toInt()} px",
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .width(52.dp)
+                    .padding(start = 8.dp),
             )
         }
     }

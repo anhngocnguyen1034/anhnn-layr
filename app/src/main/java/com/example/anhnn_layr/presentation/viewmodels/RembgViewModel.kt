@@ -4,22 +4,29 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.anhnn_layr.domain.models.DraftSummary
 import com.example.anhnn_layr.domain.models.EditorStateSnapshot
+import com.example.anhnn_layr.domain.models.TextStickerSnapshot
 import com.example.anhnn_layr.domain.usecases.DeleteDraftUseCase
 import com.example.anhnn_layr.domain.usecases.LoadDraftUseCase
 import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.domain.usecases.SaveDraftUseCase
 import com.example.anhnn_layr.utils.TouchPath
+import com.example.anhnn_layr.utils.TextSticker
+import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.applyFeather
 import com.example.anhnn_layr.utils.applySubjectEffects
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
+import com.example.anhnn_layr.utils.centerCropBounds
+import com.example.anhnn_layr.utils.crop
+import com.example.anhnn_layr.utils.translatedAfterCrop
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +43,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 import javax.inject.Inject
 
 sealed interface RembgUiState {
@@ -70,6 +78,8 @@ data class EditorState(
     val brightness: Float = 0f,
     val contrast: Float = 0f,
     val saturation: Float = 0f,
+    val textStickers: List<TextSticker> = emptyList(),
+    val selectedTextStickerId: String? = null,
 )
 
 @HiltViewModel
@@ -208,7 +218,13 @@ class RembgViewModel @Inject constructor(
 
     fun setColor(color: Color) = _editor.update { it.copy(selectedColor = color) }
 
-    fun setTool(tool: EditorTool) = _editor.update { it.copy(activeTool = tool) }
+    fun setTool(tool: EditorTool) {
+        if (tool == EditorTool.TEXT) {
+            ensureTextStickerSelected()
+        } else {
+            _editor.update { it.copy(activeTool = tool) }
+        }
+    }
     fun setEraseMode(isErase: Boolean) = _editor.update { it.copy(isEraseMode = isErase) }
     fun setBrushSize(size: Float) = _editor.update { it.copy(brushSize = size) }
 
@@ -260,6 +276,173 @@ class RembgViewModel @Inject constructor(
     fun setBackgroundBlur(intensity: Float) {
         _editor.update { it.copy(backgroundBlur = intensity) }
         rebuildBlurredBackground()
+    }
+
+    fun addTextSticker() {
+        val success = _state.value as? RembgUiState.Success ?: return
+        val sticker = createDefaultTextSticker(success.effectedBitmap)
+        _editor.update {
+            it.copy(
+                activeTool = EditorTool.TEXT,
+                textStickers = it.textStickers + sticker,
+                selectedTextStickerId = sticker.id,
+            )
+        }
+    }
+
+    private fun ensureTextStickerSelected() {
+        val success = _state.value as? RembgUiState.Success
+        if (success == null) {
+            _editor.update { it.copy(activeTool = EditorTool.TEXT) }
+            return
+        }
+
+        _editor.update { editor ->
+            val selectedExists = editor.selectedTextStickerId != null &&
+                editor.textStickers.any { it.id == editor.selectedTextStickerId }
+            when {
+                editor.textStickers.isEmpty() -> {
+                    val sticker = createDefaultTextSticker(success.effectedBitmap)
+                    editor.copy(
+                        activeTool = EditorTool.TEXT,
+                        textStickers = listOf(sticker),
+                        selectedTextStickerId = sticker.id,
+                    )
+                }
+                selectedExists -> editor.copy(activeTool = EditorTool.TEXT)
+                else -> editor.copy(
+                    activeTool = EditorTool.TEXT,
+                    selectedTextStickerId = editor.textStickers.last().id,
+                )
+            }
+        }
+    }
+
+    private fun createDefaultTextSticker(bitmap: Bitmap): TextSticker = TextSticker(
+        id = UUID.randomUUID().toString(),
+        text = "Chữ mới",
+        center = Offset(
+            x = bitmap.width / 2f,
+            y = bitmap.height / 2f,
+        ),
+    )
+
+    fun selectTextSticker(id: String) {
+        _editor.update { it.copy(selectedTextStickerId = id) }
+    }
+
+    fun deleteSelectedTextSticker() {
+        val selectedId = _editor.value.selectedTextStickerId ?: return
+        _editor.update { editor ->
+            val remaining = editor.textStickers.filterNot { it.id == selectedId }
+            editor.copy(
+                textStickers = remaining,
+                selectedTextStickerId = remaining.lastOrNull()?.id,
+            )
+        }
+    }
+
+    fun setSelectedText(value: String) = updateSelectedTextSticker { it.copy(text = value) }
+    fun setSelectedTextFont(font: TextStickerFont) = updateSelectedTextSticker { it.copy(font = font) }
+    fun setSelectedTextColor(color: Color) = updateSelectedTextSticker { it.copy(textColor = color) }
+    fun setSelectedTextOutlineColor(color: Color) = updateSelectedTextSticker {
+        it.copy(outlineColor = color)
+    }
+    fun setSelectedTextOutlineWidth(width: Float) = updateSelectedTextSticker {
+        it.copy(outlineWidth = width)
+    }
+    fun setSelectedTextShadowRadius(radius: Float) = updateSelectedTextSticker {
+        it.copy(shadowRadius = radius)
+    }
+    fun setSelectedTextFontSize(size: Float) = updateSelectedTextSticker { it.copy(fontSize = size) }
+
+    fun transformTextSticker(id: String, pan: Offset, zoom: Float, rotation: Float) {
+        _editor.update { editor ->
+            editor.copy(
+                textStickers = editor.textStickers.map { sticker ->
+                    if (sticker.id != id) return@map sticker
+                    sticker.copy(
+                        center = sticker.center + pan,
+                        scale = (sticker.scale * zoom).coerceIn(0.25f, 5f),
+                        rotation = sticker.rotation + Math.toDegrees(rotation.toDouble()).toFloat(),
+                    )
+                },
+                selectedTextStickerId = id,
+            )
+        }
+    }
+
+    private fun updateSelectedTextSticker(block: (TextSticker) -> TextSticker) {
+        val selectedId = _editor.value.selectedTextStickerId ?: return
+        _editor.update { editor ->
+            editor.copy(
+                textStickers = editor.textStickers.map { sticker ->
+                    if (sticker.id == selectedId) block(sticker) else sticker
+                },
+            )
+        }
+    }
+
+    fun cropToAspect(aspectWidth: Int, aspectHeight: Int) {
+        val proc = processedBitmap ?: return
+        val orig = originalBitmap ?: return
+        val current = _state.value as? RembgUiState.Success ?: return
+        val ed = _editor.value
+
+        viewModelScope.launch {
+            val cropped = withContext(Dispatchers.Default) {
+                val bounds = centerCropBounds(proc.width, proc.height, aspectWidth, aspectHeight)
+                val croppedProcessed = proc.crop(bounds)
+                val croppedOriginal = orig.crop(bounds)
+                val croppedPaths = ed.paths.translatedAfterCrop(bounds)
+                val croppedRedoStack = ed.redoStack.translatedAfterCrop(bounds)
+                val croppedTextStickers = ed.textStickers.map { sticker ->
+                    sticker.copy(
+                        center = Offset(
+                            x = sticker.center.x - bounds.left,
+                            y = sticker.center.y - bounds.top,
+                        ),
+                    )
+                }
+                val working = buildWorkingBitmap(croppedProcessed, croppedOriginal, croppedPaths)
+                val display = applyFeather(working, ed.featherRadius)
+                val effected = applySubjectEffects(
+                    subject = display,
+                    outlineWidth = ed.outlineWidth,
+                    outlineColor = ed.outlineColor,
+                    shadowRadius = ed.shadowRadius,
+                    brightness = ed.brightness,
+                    contrast = ed.contrast,
+                    saturation = ed.saturation,
+                )
+                CroppedEditorState(
+                    original = croppedOriginal,
+                    processed = croppedProcessed,
+                    working = working,
+                    display = display,
+                    effected = effected,
+                    paths = croppedPaths,
+                    redoStack = croppedRedoStack,
+                    textStickers = croppedTextStickers,
+                )
+            }
+            if (_state.value !== current) return@launch
+            processedBitmap = cropped.processed
+            originalBitmap = cropped.original
+            _editor.update {
+                it.copy(
+                    paths = cropped.paths,
+                    redoStack = cropped.redoStack,
+                    textStickers = cropped.textStickers,
+                )
+            }
+            _state.value = RembgUiState.Success(
+                originalBitmap = cropped.original,
+                workingBitmap = cropped.working,
+                displayBitmap = cropped.display,
+                effectedBitmap = cropped.effected,
+            )
+        }
     }
 
     private fun rebuildBlurredBackground() {
@@ -381,6 +564,8 @@ private fun EditorState.toSnapshot(): EditorStateSnapshot = EditorStateSnapshot(
     brightness = brightness,
     contrast = contrast,
     saturation = saturation,
+    textStickers = textStickers.map { it.toSnapshot() },
+    selectedTextStickerId = selectedTextStickerId,
 )
 
 private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorState = EditorState(
@@ -401,4 +586,46 @@ private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorSta
     brightness = brightness,
     contrast = contrast,
     saturation = saturation,
+    textStickers = textStickers.orEmpty().map { it.toTextSticker() },
+    selectedTextStickerId = selectedTextStickerId,
+)
+
+private fun TextSticker.toSnapshot(): TextStickerSnapshot = TextStickerSnapshot(
+    id = id,
+    text = text,
+    centerX = center.x,
+    centerY = center.y,
+    textColorArgb = textColor.toArgb().toLong() and 0xFFFFFFFFL,
+    outlineColorArgb = outlineColor.toArgb().toLong() and 0xFFFFFFFFL,
+    outlineWidth = outlineWidth,
+    shadowRadius = shadowRadius,
+    fontSize = fontSize,
+    rotation = rotation,
+    scale = scale,
+    font = font.name,
+)
+
+private fun TextStickerSnapshot.toTextSticker(): TextSticker = TextSticker(
+    id = id,
+    text = text,
+    center = Offset(centerX, centerY),
+    textColor = Color(textColorArgb.toInt()),
+    outlineColor = Color(outlineColorArgb.toInt()),
+    outlineWidth = outlineWidth,
+    shadowRadius = shadowRadius,
+    fontSize = fontSize,
+    rotation = rotation,
+    scale = scale,
+    font = runCatching { TextStickerFont.valueOf(font) }.getOrDefault(TextStickerFont.INTER),
+)
+
+private data class CroppedEditorState(
+    val original: Bitmap,
+    val processed: Bitmap,
+    val working: Bitmap,
+    val display: Bitmap,
+    val effected: Bitmap,
+    val paths: List<TouchPath>,
+    val redoStack: List<TouchPath>,
+    val textStickers: List<TextSticker>,
 )

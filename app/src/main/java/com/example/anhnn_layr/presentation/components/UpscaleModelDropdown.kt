@@ -1,7 +1,6 @@
 package com.example.anhnn_layr.presentation.components
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -19,33 +18,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-data class RembgModel(
+data class UpscaleModel(
     val id: String,
     val description: String,
 )
 
-private val DEFAULT_MODELS = listOf(
-    RembgModel("isnet-general-use", "Đa năng, chi tiết viền tốt hơn u2net (mặc định)"),
-    RembgModel("u2net", "Đa năng, cân bằng tốc độ & chất lượng"),
-    RembgModel("u2netp", "Phiên bản nhẹ của u2net — nhanh hơn, nhẹ máy"),
-    RembgModel("u2net_human_seg", "Tối ưu cho ảnh người (chân dung, cơ thể)"),
-    RembgModel("silueta", "Giống u2net nhưng dung lượng nhỏ hơn nhiều"),
-    RembgModel("birefnet-general", "Chất lượng cao, tách viền sắc nét (chậm hơn)"),
-    RembgModel("birefnet-general-lite", "Bản nhẹ của birefnet — nhanh hơn, chất lượng khá"),
-    RembgModel("birefnet-portrait", "Chuyên cho ảnh chân dung, tóc/viền mịn"),
-    RembgModel("bria-rmbg", "Mô hình thương mại Bria, chất lượng cao cho ảnh sản phẩm"),
+private val UPSCALE_MODELS = listOf(
+    UpscaleModel("RealESRGAN_x4plus", "Đa năng x4 (mặc định) — chất lượng tốt cho ảnh thực"),
+    UpscaleModel("RealESRNet_x4plus", "Ít nhiễu hơn RealESRGAN nhưng chi tiết mượt hơn"),
+    UpscaleModel("RealESRGAN_x4plus_anime_6B", "Tối ưu cho ảnh anime/illustration x4"),
+    UpscaleModel("RealESRGAN_x2plus", "Phóng to x2 — nhanh, nhẹ máy"),
+    UpscaleModel("realesr-animevideov3", "Anime video nhẹ — nhanh, phù hợp ảnh anime"),
+    UpscaleModel("realesr-general-x4v3", "Tổng quát x4 nhẹ — nhanh, ít bộ nhớ"),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelDropdown(
+fun UpscaleModelDropdown(
     selected: String,
     onSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
-    models: List<RembgModel> = DEFAULT_MODELS,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedModel = models.firstOrNull { it.id == selected }
+    val selectedModel = UPSCALE_MODELS.firstOrNull { it.id == selected }
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = !expanded },
@@ -58,15 +53,13 @@ fun ModelDropdown(
             label = { Text("Model") },
             supportingText = selectedModel?.let { { Text(it.description) } },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true),
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true),
         )
         ExposedDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            models.forEach { m ->
+            UPSCALE_MODELS.forEach { m ->
                 DropdownMenuItem(
                     text = {
                         Column(modifier = Modifier.padding(vertical = 4.dp)) {

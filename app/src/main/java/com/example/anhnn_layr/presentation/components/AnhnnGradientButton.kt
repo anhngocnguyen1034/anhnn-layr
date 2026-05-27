@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleGradient
 import com.example.anhnn_layr.presentation.theme.AnhnnlayrTheme
@@ -31,7 +32,7 @@ fun AnhnnGradientButton(
     Box(
         modifier = modifier
             .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(AnhnnPurpleGradient)
             .alpha(if (enabled) 1f else 0.5f)
             .clickable(enabled = enabled, onClick = onClick)
@@ -39,7 +40,10 @@ fun AnhnnGradientButton(
         contentAlignment = Alignment.Center,
     ) {
         CompositionLocalProvider(LocalContentColor provides Color.White) {
-            Text(text = text, style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            )
         }
     }
 }

@@ -5,17 +5,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,7 +30,6 @@ import com.example.anhnn_layr.utils.decodeBackgroundBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
 
 @Composable
 fun BackgroundToolPanel(
@@ -54,13 +57,11 @@ fun BackgroundToolPanel(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ToolPanelColumn(
+        title = "Nền",
+        modifier = modifier,
     ) {
-        Text("Màu nền", style = MaterialTheme.typography.titleSmall)
+        ToolSectionLabel("Màu nền")
         BackgroundColorPicker(
             selected = selected,
             onSelected = onSelected,
@@ -70,50 +71,56 @@ fun BackgroundToolPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(onClick = onUseOriginalBackground) { Text("Ảnh gốc") }
+            OutlinedButton(onClick = onUseOriginalBackground) {
+                Icon(
+                    imageVector = Icons.Outlined.Image,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Ảnh gốc")
+            }
             OutlinedButton(
                 onClick = {
                     picker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
-            ) { Text(if (hasBackgroundImage) "Đổi nền" else "Thư viện") }
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.PhotoLibrary,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (hasBackgroundImage) "Đổi nền" else "Thư viện")
+            }
             if (hasBackgroundImage) {
-                TextButton(onClick = { onBackgroundImageSelected(null) }) { Text("Bỏ") }
+                TextButton(onClick = { onBackgroundImageSelected(null) }) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Bỏ")
+                }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Mờ nền", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = backgroundBlur,
-                onValueChange = onBackgroundBlurChange,
-                valueRange = 0f..25f,
-                enabled = hasBackgroundImage,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
-            )
-            Text(
-                backgroundBlur.toInt().toString(),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.width(28.dp),
-            )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Mịn viền", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = featherRadius,
-                onValueChange = onFeatherChange,
-                valueRange = 0f..20f,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
-            )
-            Text(
-                "${featherRadius.toInt()} px",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.width(40.dp),
-            )
-        }
+        ToolSliderRow(
+            label = "Mờ nền",
+            value = backgroundBlur,
+            range = 0f..25f,
+            suffix = "",
+            enabled = hasBackgroundImage,
+            onValueChange = onBackgroundBlurChange,
+        )
+        ToolSliderRow(
+            label = "Mịn viền",
+            value = featherRadius,
+            range = 0f..20f,
+            suffix = " px",
+            onValueChange = onFeatherChange,
+        )
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,19 +28,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
@@ -49,7 +46,6 @@ import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleLight
 import com.example.anhnn_layr.presentation.viewmodels.RembgUiState
 import com.example.anhnn_layr.presentation.viewmodels.RembgViewModel
-import kotlin.math.roundToInt
 
 @Composable
 fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
@@ -64,6 +60,13 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
         }
     }
 
+    var showUpscale by remember { mutableStateOf(false) }
+
+    if (showUpscale) {
+        UpscaleScreen(onBack = { showUpscale = false })
+        return
+    }
+
     when (val s = state) {
         RembgUiState.Idle -> HomeScreen(
             onImagePicked = { uri, model ->
@@ -73,6 +76,7 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             drafts = drafts,
             onOpenDraft = vm::openDraft,
             onDeleteDraft = vm::deleteDraft,
+            onOpenUpscale = { showUpscale = true },
         )
         is RembgUiState.Loading -> LoadingScreen(sourceUri = s.sourceUri)
         is RembgUiState.Error -> ErrorScreen(message = s.message, onRetry = vm::reset)
@@ -96,6 +100,18 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             onBrightnessChange = vm::setBrightness,
             onContrastChange = vm::setContrast,
             onSaturationChange = vm::setSaturation,
+            onCrop = { preset -> vm.cropToAspect(preset.width, preset.height) },
+            onAddText = vm::addTextSticker,
+            onSelectText = vm::selectTextSticker,
+            onTextChange = vm::setSelectedText,
+            onTextFontChange = vm::setSelectedTextFont,
+            onTextColorChange = vm::setSelectedTextColor,
+            onTextOutlineColorChange = vm::setSelectedTextOutlineColor,
+            onTextOutlineWidthChange = vm::setSelectedTextOutlineWidth,
+            onTextShadowRadiusChange = vm::setSelectedTextShadowRadius,
+            onTextFontSizeChange = vm::setSelectedTextFontSize,
+            onTextTransform = vm::transformTextSticker,
+            onDeleteText = vm::deleteSelectedTextSticker,
             onCommitPath = vm::commitPath,
             onUndo = vm::undo,
             onRedo = vm::redo,
@@ -121,7 +137,7 @@ private fun LoadingScreen(sourceUri: Uri?) {
             if (sourceUri == null) {
                 CircularProgressIndicator()
             } else {
-                ScanningImagePreview(sourceUri = sourceUri)
+                ProcessingImagePreview(sourceUri = sourceUri)
             }
 
             Text(
@@ -143,67 +159,76 @@ private fun LoadingScreen(sourceUri: Uri?) {
 }
 
 @Composable
-private fun ScanningImagePreview(sourceUri: Uri) {
-    val imageSizeState = remember { mutableStateOf(IntSize.Zero) }
-    val density = LocalDensity.current
-    val scanHeightPx = with(density) { 96.dp.toPx() }
-    val transition = rememberInfiniteTransition(label = "background-removal-scan")
-    val progress by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
+private fun ProcessingImagePreview(sourceUri: Uri) {
+    val transition = rememberInfiniteTransition(label = "background-removal-processing")
+    val pulse by transition.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 0.72f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800),
-            repeatMode = RepeatMode.Restart,
+            animation = tween(durationMillis = 1200),
+            repeatMode = RepeatMode.Reverse,
         ),
-        label = "scan-progress",
+        label = "processing-pulse",
     )
+    val shape = RoundedCornerShape(8.dp)
 
-    Box(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(420.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .onSizeChanged { imageSizeState.value = it },
-        contentAlignment = Alignment.Center,
+            .height(420.dp),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = AnhnnPurpleDark.copy(alpha = pulse),
+        ),
+        tonalElevation = 2.dp,
     ) {
-        AsyncImage(
-            model = sourceUri,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit,
-        )
-
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(96.dp)
-                .offset {
-                    val imageSize = imageSizeState.value
-                    val travel = imageSize.height + scanHeightPx
-                    IntOffset(x = 0, y = (travel * progress - scanHeightPx).roundToInt())
-                }
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            AnhnnPurpleLight.copy(alpha = 0.18f),
-                            Color.White.copy(alpha = 0.72f),
-                            AnhnnPurpleDark.copy(alpha = 0.22f),
-                            Color.Transparent,
+                .fillMaxSize()
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                model = sourceUri,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                AnhnnPurpleLight.copy(alpha = 0.05f),
+                                AnhnnPurpleDark.copy(alpha = 0.10f),
+                            ),
                         ),
                     ),
-                ),
-        )
+            )
 
-        CircularProgressIndicator(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(14.dp)
-                .size(28.dp),
-            strokeWidth = 3.dp,
-            color = AnhnnPurpleDark,
-        )
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(14.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                tonalElevation = 2.dp,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(24.dp),
+                    strokeWidth = 3.dp,
+                    color = AnhnnPurpleDark,
+                )
+            }
+        }
     }
 }
 
