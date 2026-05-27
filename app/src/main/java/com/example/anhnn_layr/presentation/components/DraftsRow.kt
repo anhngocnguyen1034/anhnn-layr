@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.anhnn_layr.domain.models.DraftSummary
@@ -43,7 +44,8 @@ fun DraftsRow(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "Bản nháp gần đây",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 4.dp),
         )
         LazyRow(
@@ -70,7 +72,7 @@ private fun DraftCard(
         Box(
             modifier = Modifier
                 .size(110.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFFEDEDED))
                 .clickable { onOpen(draft.id) },
         ) {

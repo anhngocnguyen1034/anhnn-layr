@@ -33,4 +33,21 @@ data class EditorStateSnapshot(
     val brightness: Float,
     val contrast: Float,
     val saturation: Float,
+    val textStickers: List<TextStickerSnapshot>? = null,
+    val selectedTextStickerId: String? = null,
+)
+
+data class TextStickerSnapshot(
+    val id: String,
+    val text: String,
+    val centerX: Float,
+    val centerY: Float,
+    val textColorArgb: Long,
+    val outlineColorArgb: Long,
+    val outlineWidth: Float,
+    val shadowRadius: Float,
+    val fontSize: Float,
+    val rotation: Float,
+    val scale: Float,
+    val font: String,
 )

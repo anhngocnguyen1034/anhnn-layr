@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 
 data class BgColorOption(val label: String, val color: Color, val transparent: Boolean = false)
 
@@ -46,7 +47,7 @@ fun BackgroundColorPicker(
     ) {
         items(options) { opt ->
             val isSelected = opt.color.value == selected.value
-            val borderColor = if (isSelected) Color(0xFF6A1B9A) else Color(0x33000000)
+            val borderColor = if (isSelected) AnhnnPurpleDark else Color(0x33000000)
             val borderWidth = if (isSelected) 3.dp else 1.dp
             Box(
                 modifier = Modifier
