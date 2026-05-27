@@ -117,6 +117,7 @@ fun EditorScreen(
     val exportImage: () -> Unit = {
         runCatching {
             val finalBmp = generateFinalBitmap(
+                context = ctx,
                 subjectBitmap = effectedBitmap,
                 bgColor = editor.selectedColor,
                 bgBitmap = editor.blurredBackgroundBitmap,

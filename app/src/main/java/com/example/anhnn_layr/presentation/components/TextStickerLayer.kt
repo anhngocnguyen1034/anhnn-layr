@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -25,6 +26,7 @@ fun TextStickerLayer(
     modifier: Modifier = Modifier,
 ) {
     val selected = stickers.firstOrNull { it.id == selectedId }
+    val context = LocalContext.current
     Canvas(
         modifier = modifier
             .fillMaxSize()
@@ -47,7 +49,7 @@ fun TextStickerLayer(
         drawContext.canvas.nativeCanvas.apply {
             save()
             scale(size.width / bitmapWidth, size.height / bitmapHeight)
-            drawTextStickers(this, stickers)
+            drawTextStickers(context, this, stickers)
             restore()
         }
 

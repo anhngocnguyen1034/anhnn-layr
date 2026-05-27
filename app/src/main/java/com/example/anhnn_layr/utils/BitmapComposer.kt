@@ -1,5 +1,6 @@
 package com.example.anhnn_layr.utils
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -8,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
 fun generateFinalBitmap(
+    context: Context,
     subjectBitmap: Bitmap,
     bgColor: Color,
     bgBitmap: Bitmap? = null,
@@ -29,7 +31,7 @@ fun generateFinalBitmap(
     }
 
     canvas.drawBitmap(subjectBitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
-    drawTextStickers(canvas, textStickers)
+    drawTextStickers(context, canvas, textStickers)
     return out
 }
 

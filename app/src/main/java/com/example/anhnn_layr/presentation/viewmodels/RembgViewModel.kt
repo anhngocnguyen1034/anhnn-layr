@@ -616,7 +616,7 @@ private fun TextStickerSnapshot.toTextSticker(): TextSticker = TextSticker(
     fontSize = fontSize,
     rotation = rotation,
     scale = scale,
-    font = runCatching { TextStickerFont.valueOf(font) }.getOrDefault(TextStickerFont.SANS),
+    font = runCatching { TextStickerFont.valueOf(font) }.getOrDefault(TextStickerFont.INTER),
 )
 
 private data class CroppedEditorState(

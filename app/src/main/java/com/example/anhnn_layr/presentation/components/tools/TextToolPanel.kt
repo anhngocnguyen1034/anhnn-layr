@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.components.BackgroundColorPicker
 import com.example.anhnn_layr.presentation.components.BgColorOption
@@ -97,7 +99,7 @@ fun TextToolPanel(
         )
 
         FontDropdown(
-            selected = selected?.font ?: TextStickerFont.SANS,
+            selected = selected?.font ?: TextStickerFont.INTER,
             enabled = selected != null,
             onSelected = onFontChange,
             modifier = Modifier.fillMaxWidth(),
@@ -158,7 +160,12 @@ private fun FontDropdown(
         ) {
             TextStickerFont.entries.forEach { font ->
                 DropdownMenuItem(
-                    text = { Text(font.label) },
+                    text = {
+                        Text(
+                            text = font.label,
+                            fontFamily = FontFamily(Font(font.fontRes)),
+                        )
+                    },
                     onClick = {
                         onSelected(font)
                         expanded = false
