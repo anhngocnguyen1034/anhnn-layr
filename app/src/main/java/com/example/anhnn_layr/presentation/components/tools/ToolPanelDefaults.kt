@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -29,7 +30,9 @@ internal fun ToolPanelColumn(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scrollModifier = if (scrollable) {
-        Modifier.verticalScroll(rememberScrollState())
+        Modifier
+            .heightIn(max = 260.dp)
+            .verticalScroll(rememberScrollState())
     } else {
         Modifier
     }
