@@ -2,6 +2,9 @@ package com.example.anhnn_layr.presentation.screens
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -42,10 +45,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
+import com.example.anhnn_layr.presentation.screens.layr.LayrEditorScreen
+import com.example.anhnn_layr.presentation.screens.layr.LayrMainScreen
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleLight
 import com.example.anhnn_layr.presentation.viewmodels.RembgUiState
 import com.example.anhnn_layr.presentation.viewmodels.RembgViewModel
+import com.example.anhnn_layr.utils.GalleryPhoto
 
 @Composable
 fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
@@ -60,23 +66,99 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
         }
     }
 
-    var showUpscale by remember { mutableStateOf(false) }
+    // Ảnh đang chờ chỉnh sửa (đã chọn/chụp xong) -> hiển thị màn Editor chọn tính năng.
+    var pendingEdit by remember { mutableStateOf<Pair<Uri, String?>?>(null) }
+    // Ảnh đang đưa vào luồng "Làm nét" (upscale).
+    var upscaleTarget by remember { mutableStateOf<Pair<Uri, String?>?>(null) }
+    var showCamera by remember { mutableStateOf(false) }
+    var showGallery by remember { mutableStateOf(false) }
+    // Khi != null: đang xem ảnh toàn màn hình (danh sách ảnh + vị trí ảnh đang xem).
+    var preview by remember { mutableStateOf<Pair<List<GalleryPhoto>, Int>?>(null) }
 
-    if (showUpscale) {
-        UpscaleScreen(onBack = { showUpscale = false })
+    // Bộ chọn ảnh hệ thống — chọn xong thì đưa sang màn Editor.
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            pendingEdit = uri to ctx.contentResolver.getType(uri)
+        }
+    }
+    val openImagePicker = {
+        imagePicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+        )
+    }
+
+    // --- Lớp phủ Làm nét (upscale) ---
+    upscaleTarget?.let { (uri, mime) ->
+        UpscaleScreen(
+            initialUri = uri,
+            initialMime = mime,
+            onBack = { upscaleTarget = null },
+        )
+        return
+    }
+
+    // --- Lớp phủ Camera ---
+    if (showCamera) {
+        CameraCaptureScreen(
+            onPhotoSaved = {
+                showCamera = false
+                showGallery = true // mở thư viện để chọn ảnh vừa chụp
+            },
+            onBack = { showCamera = false },
+        )
+        return
+    }
+
+    // --- Lớp phủ Thư viện / Xem trước ---
+    if (showGallery) {
+        val current = preview
+        if (current != null) {
+            PhotoPreviewScreen(
+                photos = current.first,
+                initialIndex = current.second,
+                onEdit = { uri ->
+                    preview = null
+                    showGallery = false
+                    pendingEdit = uri to ctx.contentResolver.getType(uri)
+                },
+                onBack = { preview = null },
+            )
+        } else {
+            GalleryScreen(
+                onOpenPhoto = { photos, index -> preview = photos to index },
+                onBack = { showGallery = false },
+            )
+        }
+        return
+    }
+
+    // --- Màn Editor chọn tính năng (sau khi đã có ảnh) ---
+    pendingEdit?.let { (uri, mime) ->
+        LayrEditorScreen(
+            imageUri = uri,
+            onBack = { pendingEdit = null },
+            onSharpen = {
+                pendingEdit = null
+                upscaleTarget = uri to mime
+            },
+            onRemoveBackground = {
+                pendingEdit = null
+                vm.remove(uri, sourceMimeType = mime) // model mặc định isnet-general-use
+            },
+        )
         return
     }
 
     when (val s = state) {
-        RembgUiState.Idle -> HomeScreen(
-            onImagePicked = { uri, model ->
-                val mime = ctx.contentResolver.getType(uri)
-                vm.remove(uri, model, mime)
-            },
+        RembgUiState.Idle -> LayrMainScreen(
             drafts = drafts,
+            onCapture = { showCamera = true },
+            onPickFromGallery = openImagePicker,
+            onOpenRecent = { showGallery = true }, // ảnh mẫu trang trí -> mở thư viện thật
             onOpenDraft = vm::openDraft,
             onDeleteDraft = vm::deleteDraft,
-            onOpenUpscale = { showUpscale = true },
         )
         is RembgUiState.Loading -> LoadingScreen(sourceUri = s.sourceUri)
         is RembgUiState.Error -> ErrorScreen(message = s.message, onRetry = vm::reset)
