@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -32,6 +34,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Cameraswitch
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +64,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
+import com.example.anhnn_layr.presentation.components.CustomZoomSlider
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleGradient
 import com.example.anhnn_layr.utils.saveCaptureToGallery
@@ -163,6 +168,12 @@ private fun LiveCamera(
             .build()
     }
 
+    // Camera đang bind — cần để điều khiển zoom. Cập nhật lại mỗi lần đổi ống kính.
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    // Vị trí thanh kéo (0f..1f): setLinearZoom map tuyến tính theo góc nhìn, mượt
+    // hơn so với set thẳng zoomRatio. Giữ lại khi xoay máy / đổi ống kính.
+    var linearZoom by rememberSaveable { mutableStateOf(0f) }
+
     DisposableEffect(lensFacing) {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
@@ -173,13 +184,18 @@ private fun LiveCamera(
             val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
             try {
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
+                camera = provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }, ContextCompat.getMainExecutor(context))
 
         onDispose { runCatching { future.get().unbindAll() } }
+    }
+
+    // Áp mức zoom lên camera mỗi khi kéo thanh hoặc vừa bind camera mới.
+    LaunchedEffect(camera, linearZoom) {
+        camera?.cameraControl?.setLinearZoom(linearZoom)
     }
 
     val takePhoto = takePhoto@{
@@ -222,31 +238,106 @@ private fun LiveCamera(
                 .padding(16.dp),
         )
 
-        Row(
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 28.dp, vertical = 36.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+                .navigationBarsPadding()
+                .padding(horizontal = 28.dp)
+                .padding(top = 12.dp, bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Spacer giữ nút chụp ở chính giữa.
-            Box(modifier = Modifier.size(52.dp))
-
-            ShutterButton(onClick = takePhoto)
-
-            CircleIconButton(
-                icon = Icons.Outlined.Cameraswitch,
-                contentDescription = "Đổi camera",
-                onClick = {
-                    lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
-                        CameraSelector.LENS_FACING_FRONT
-                    } else {
-                        CameraSelector.LENS_FACING_BACK
-                    }
-                },
+            // Thanh kéo phóng to (zoom) kiểu máy ảnh — nằm ngang phía trên nút chụp.
+            ZoomBar(
+                linearZoom = linearZoom,
+                onZoomChange = { linearZoom = it },
+                modifier = Modifier.padding(bottom = 20.dp),
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Spacer giữ nút chụp ở chính giữa.
+                Box(modifier = Modifier.size(52.dp))
+
+                ShutterButton(onClick = takePhoto)
+
+                CircleIconButton(
+                    icon = Icons.Outlined.Cameraswitch,
+                    contentDescription = "Đổi camera",
+                    onClick = {
+                        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                            CameraSelector.LENS_FACING_FRONT
+                        } else {
+                            CameraSelector.LENS_FACING_BACK
+                        }
+                    },
+                )
+            }
         }
+    }
+}
+
+/**
+ * Thanh kéo zoom kiểu máy ảnh: nút trừ/cộng hai bên + [CustomZoomSlider] ở giữa,
+ * bọc trong một pill nền đen mờ. [linearZoom] trong khoảng 0f..1f.
+ */
+@Composable
+private fun ZoomBar(
+    linearZoom: Float,
+    onZoomChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth(0.85f)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.Black.copy(alpha = 0.3f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ZoomStepButton(
+            icon = Icons.Rounded.Remove,
+            contentDescription = "Thu nhỏ",
+            onClick = { onZoomChange((linearZoom - 0.1f).coerceIn(0f, 1f)) },
+        )
+
+        CustomZoomSlider(
+            value = linearZoom,
+            onValueChange = onZoomChange,
+            modifier = Modifier.weight(1f),
+        )
+
+        ZoomStepButton(
+            icon = Icons.Rounded.Add,
+            contentDescription = "Phóng to",
+            onClick = { onZoomChange((linearZoom + 0.1f).coerceIn(0f, 1f)) },
+        )
+    }
+}
+
+@Composable
+private fun ZoomStepButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(24.dp),
+        )
     }
 }
 
