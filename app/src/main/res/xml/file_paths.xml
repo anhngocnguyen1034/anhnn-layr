@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Ảnh chụp tạm thời cho luồng chụp -> chỉnh sửa (không ghi vào thư viện). -->
+    <cache-path
+        name="camera_captures"
+        path="captures/" />
+</paths>

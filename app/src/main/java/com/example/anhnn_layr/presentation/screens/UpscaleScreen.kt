@@ -1,5 +1,6 @@
 package com.example.anhnn_layr.presentation.screens
 
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -53,6 +54,8 @@ import kotlin.math.roundToInt
 @Composable
 fun UpscaleScreen(
     onBack: () -> Unit,
+    initialUri: Uri? = null,        // ảnh truyền sẵn từ màn Editor (nếu có)
+    initialMime: String? = null,
     vm: UpscaleViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -99,12 +102,22 @@ fun UpscaleScreen(
                     onModelChange = vm::setModel,
                     onOutscaleChange = vm::setOutscale,
                     onTileChange = vm::setTile,
-                    onPick = {
-                        picker.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly,
-                            ),
-                        )
+                    // Có ảnh truyền sẵn -> làm nét ảnh đó; ngược lại mở bộ chọn ảnh.
+                    primaryLabel = if (initialUri != null) {
+                        "Làm nét ảnh này"
+                    } else {
+                        "Chọn ảnh từ thư viện"
+                    },
+                    onPrimary = {
+                        if (initialUri != null) {
+                            vm.run(initialUri, initialMime)
+                        } else {
+                            picker.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                ),
+                            )
+                        }
                     },
                 )
                 is UpscaleUiState.Loading -> UpscaleLoading(
@@ -149,7 +162,8 @@ private fun UpscaleIdle(
     onModelChange: (String) -> Unit,
     onOutscaleChange: (Float) -> Unit,
     onTileChange: (Int) -> Unit,
-    onPick: () -> Unit,
+    primaryLabel: String,
+    onPrimary: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -199,8 +213,8 @@ private fun UpscaleIdle(
         )
 
         AnhnnGradientButton(
-            text = "Chọn ảnh từ thư viện",
-            onClick = onPick,
+            text = primaryLabel,
+            onClick = onPrimary,
         )
     }
 }

@@ -19,7 +19,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            AnhnnlayrTheme {
+            // LAYR khóa ở Dark mode hoàn toàn theo thiết kế
+            AnhnnlayrTheme(darkTheme = true) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Surface(modifier = Modifier.padding(innerPadding)) {
                         RembgScreen()
