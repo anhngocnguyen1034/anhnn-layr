@@ -14,6 +14,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -225,7 +227,15 @@ private fun LiveCamera(
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { previewView },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                // Pinch (chụm 2 ngón) để phóng to/thu nhỏ — cập nhật linearZoom,
+                // LaunchedEffect ở trên sẽ áp setLinearZoom lên camera.
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, _, zoom, _ ->
+                        linearZoom = (linearZoom + (zoom - 1f) * 0.5f).coerceIn(0f, 1f)
+                    }
+                },
         )
 
         CircleIconButton(
