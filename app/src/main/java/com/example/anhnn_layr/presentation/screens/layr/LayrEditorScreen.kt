@@ -70,7 +70,8 @@ fun LayrEditorScreen(
             AsyncImage(
                 model = imageUri,
                 contentDescription = "Ảnh đang chỉnh sửa",
-                contentScale = ContentScale.Crop,
+                // Fit để hiển thị trọn ảnh, không phóng to cắt khuyết.
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
             )
 
