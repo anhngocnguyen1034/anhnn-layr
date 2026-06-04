@@ -40,6 +40,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.anhnn_layr.utils.GalleryPhoto
 
 /**
  * MÀN HÌNH HOME của LAYR — theo Luồng tuyến tính (Linear Flow) trong feat.md.
@@ -52,10 +53,11 @@ import coil.compose.AsyncImage
  */
 @Composable
 fun LayrHomeScreen(
+    recentPhotos: List<GalleryPhoto>,
     onCapture: () -> Unit,
     onPickFromGallery: () -> Unit,
     onSeeAllRecent: () -> Unit,
-    onOpenRecent: (Int) -> Unit,
+    onOpenRecentPhoto: (GalleryPhoto) -> Unit,
     onOpenSettings: () -> Unit,
     onTipPortrait: () -> Unit,
     onTipRemoveBg: () -> Unit,
@@ -79,22 +81,24 @@ fun LayrHomeScreen(
             onPickFromGallery = onPickFromGallery,
         )
 
-        // === Thành phần 3: ẢNH GẦN ĐÂY ===
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            LayrSectionHeader(
-                title = "ẢNH GẦN ĐÂY",
-                actionText = "Xem tất cả",
-                onActionClick = onSeeAllRecent,
-            )
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp), // spacing 8dp theo feat.md
-                contentPadding = PaddingValues(end = 4.dp),
-            ) {
-                items(LayrSampleImages.RECENT) { url ->
-                    RecentPhotoCard(
-                        imageUrl = url,
-                        onClick = { onOpenRecent(LayrSampleImages.RECENT.indexOf(url)) },
-                    )
+        // === Thành phần 3: ẢNH GẦN ĐÂY (5 ảnh chụp gần nhất) ===
+        if (recentPhotos.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LayrSectionHeader(
+                    title = "ẢNH GẦN ĐÂY",
+                    actionText = "Xem tất cả",
+                    onActionClick = onSeeAllRecent,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp), // spacing 8dp theo feat.md
+                    contentPadding = PaddingValues(end = 4.dp),
+                ) {
+                    items(recentPhotos, key = { it.id }) { photo ->
+                        RecentPhotoCard(
+                            model = photo.uri,
+                            onClick = { onOpenRecentPhoto(photo) },
+                        )
+                    }
                 }
             }
         }
@@ -256,10 +260,11 @@ private fun HeroSection(
 @Composable
 private fun LayrHomeScreenPreview() {
     LayrHomeScreen(
+        recentPhotos = emptyList(),
         onCapture = {},
         onPickFromGallery = {},
         onSeeAllRecent = {},
-        onOpenRecent = {},
+        onOpenRecentPhoto = {},
         onOpenSettings = {},
         onTipPortrait = {},
         onTipRemoveBg = {},

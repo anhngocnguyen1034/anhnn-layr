@@ -274,16 +274,17 @@ fun TipCard(
 }
 
 /* ----------------------------------------------------------------------------
- *  THUMBNAIL "ẢNH GẦN ĐÂY" — load ảnh mẫu qua Coil (AsyncImage)
+ *  THUMBNAIL "ẢNH GẦN ĐÂY" — load ảnh qua Coil (AsyncImage).
+ *  [model] có thể là Uri (ảnh đã chụp) hoặc URL String.
  * ------------------------------------------------------------------------- */
 @Composable
 fun RecentPhotoCard(
-    imageUrl: String,
+    model: Any?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AsyncImage(
-        model = imageUrl,
+        model = model,
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier = modifier

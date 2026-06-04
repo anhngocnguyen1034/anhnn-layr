@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.anhnn_layr.domain.models.DraftSummary
+import com.example.anhnn_layr.utils.GalleryPhoto
 
 /** Các tab của thanh điều hướng dưới cùng. */
 private enum class LayrTab(val label: String, val icon: ImageVector) {
@@ -39,9 +40,11 @@ private enum class LayrTab(val label: String, val icon: ImageVector) {
 @Composable
 fun LayrMainScreen(
     drafts: List<DraftSummary>,
+    recentPhotos: List<GalleryPhoto>,
     onCapture: () -> Unit,
     onPickFromGallery: () -> Unit,
-    onOpenRecent: (Int) -> Unit,
+    onOpenRecentPhoto: (GalleryPhoto) -> Unit,
+    onSeeAllRecent: () -> Unit,
     onOpenDraft: (String) -> Unit,
     onDeleteDraft: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -75,10 +78,11 @@ fun LayrMainScreen(
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
                 LayrTab.HOME -> LayrHomeScreen(
+                    recentPhotos = recentPhotos,
                     onCapture = onCapture,
                     onPickFromGallery = onPickFromGallery,
-                    onSeeAllRecent = { selectedTab = LayrTab.STUDIO },
-                    onOpenRecent = onOpenRecent,
+                    onSeeAllRecent = onSeeAllRecent,
+                    onOpenRecentPhoto = onOpenRecentPhoto,
                     onOpenSettings = { selectedTab = LayrTab.ACCOUNT },
                     onTipPortrait = onCapture,   // mẹo làm nét -> mở luồng nhập ảnh
                     onTipRemoveBg = onPickFromGallery, // mẹo xóa nền -> chọn ảnh

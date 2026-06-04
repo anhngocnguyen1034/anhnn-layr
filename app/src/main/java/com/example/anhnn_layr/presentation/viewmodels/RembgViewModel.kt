@@ -17,6 +17,7 @@ import com.example.anhnn_layr.domain.usecases.LoadDraftUseCase
 import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.domain.usecases.SaveDraftUseCase
+import com.example.anhnn_layr.utils.GalleryPhoto
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.TextStickerFont
@@ -26,6 +27,7 @@ import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import com.example.anhnn_layr.utils.centerCropBounds
 import com.example.anhnn_layr.utils.crop
+import com.example.anhnn_layr.utils.queryCapturedPhotos
 import com.example.anhnn_layr.utils.translatedAfterCrop
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -100,6 +102,10 @@ class RembgViewModel @Inject constructor(
 
     val drafts: StateFlow<List<DraftSummary>> = observeDrafts()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // 5 ảnh chụp gần nhất (hiển thị ở mục "ẢNH GẦN ĐÂY" màn Home)
+    private val _recentPhotos = MutableStateFlow<List<GalleryPhoto>>(emptyList())
+    val recentPhotos: StateFlow<List<GalleryPhoto>> = _recentPhotos.asStateFlow()
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -539,6 +545,14 @@ class RembgViewModel @Inject constructor(
         val now = _state.value
         if (now is RembgUiState.Success) {
             _state.value = now.copy(effectedBitmap = effected)
+        }
+    }
+
+    /** Tải lại 5 ảnh chụp gần nhất cho mục "ẢNH GẦN ĐÂY". */
+    fun refreshRecentPhotos() {
+        viewModelScope.launch {
+            val photos = withContext(Dispatchers.IO) { queryCapturedPhotos(appContext) }
+            _recentPhotos.value = photos.take(5)
         }
     }
 

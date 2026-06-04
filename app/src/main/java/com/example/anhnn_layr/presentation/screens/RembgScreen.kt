@@ -58,7 +58,13 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val editor by vm.editor.collectAsState()
     val drafts by vm.drafts.collectAsState()
+    val recentPhotos by vm.recentPhotos.collectAsState()
     val ctx = LocalContext.current
+
+    // Tải lại 5 ảnh gần nhất mỗi khi quay về màn Home (Idle).
+    LaunchedEffect(state) {
+        if (state is RembgUiState.Idle) vm.refreshRecentPhotos()
+    }
 
     LaunchedEffect(vm) {
         vm.messages.collect { msg ->
@@ -154,9 +160,13 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
     when (val s = state) {
         RembgUiState.Idle -> LayrMainScreen(
             drafts = drafts,
+            recentPhotos = recentPhotos,
             onCapture = { showCamera = true },
             onPickFromGallery = openImagePicker,
-            onOpenRecent = { showGallery = true }, // ảnh mẫu trang trí -> mở thư viện thật
+            onOpenRecentPhoto = { photo ->
+                pendingEdit = photo.uri to ctx.contentResolver.getType(photo.uri)
+            },
+            onSeeAllRecent = { showGallery = true },
             onOpenDraft = vm::openDraft,
             onDeleteDraft = vm::deleteDraft,
         )
