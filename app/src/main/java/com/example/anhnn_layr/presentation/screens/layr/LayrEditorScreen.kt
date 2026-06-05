@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.ContentCut
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +48,7 @@ fun LayrEditorScreen(
     onBack: () -> Unit,
     onSharpen: () -> Unit,
     onRemoveBackground: () -> Unit,
+    onEdit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -70,7 +72,8 @@ fun LayrEditorScreen(
             AsyncImage(
                 model = imageUri,
                 contentDescription = "Ảnh đang chỉnh sửa",
-                contentScale = ContentScale.Crop,
+                // Fit để hiển thị trọn ảnh, không phóng to cắt khuyết.
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
             )
 
@@ -115,6 +118,12 @@ fun LayrEditorScreen(
                 onClick = onRemoveBackground,
                 modifier = Modifier.weight(1f),
             )
+            GlassPillButton(
+                text = "Chỉnh ảnh",
+                icon = Icons.Outlined.Tune,
+                onClick = onEdit,
+                modifier = Modifier.weight(1f),
+            )
         }
 
         // --- Thanh điều hướng tính năng dưới cùng ---
@@ -139,6 +148,12 @@ fun LayrEditorScreen(
                 icon = Icons.Outlined.ContentCut,
                 selected = false,
                 onClick = onRemoveBackground,
+            )
+            LayrNavItem(
+                text = "Chỉnh ảnh",
+                icon = Icons.Outlined.Tune,
+                selected = false,
+                onClick = onEdit,
             )
         }
     }

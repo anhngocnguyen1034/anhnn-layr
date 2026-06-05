@@ -27,6 +27,7 @@ import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import com.example.anhnn_layr.utils.centerCropBounds
 import com.example.anhnn_layr.utils.crop
+import com.example.anhnn_layr.utils.decodeUprightBitmap
 import com.example.anhnn_layr.utils.queryCapturedPhotos
 import com.example.anhnn_layr.utils.translatedAfterCrop
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -162,6 +163,34 @@ class RembgViewModel @Inject constructor(
                 .onFailure {
                     _state.value = RembgUiState.Error(it.message ?: "Lỗi không xác định")
                 }
+        }
+    }
+
+    /**
+     * Mở thẳng trình chỉnh sửa với ảnh gốc, KHÔNG qua xóa nền/làm nét. Toàn bộ ảnh
+     * được coi là "subject" (đục hoàn toàn); người dùng có thể tự erase để cắt nền,
+     * crop, thêm chữ, chỉnh sáng/tương phản… như luồng sau khi xóa nền.
+     */
+    fun edit(uri: Uri, sourceMimeType: String? = null) {
+        _state.value = RembgUiState.Loading(sourceUri = uri)
+        _editor.value = EditorState(sourceMimeType = sourceMimeType)
+        currentSourceUri = uri
+        viewModelScope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                decodeUprightBitmap(appContext, uri)
+            }?.copy(Bitmap.Config.ARGB_8888, true)
+            if (bitmap == null) {
+                _state.value = RembgUiState.Error("Không đọc được ảnh")
+                return@launch
+            }
+            processedBitmap = bitmap
+            originalBitmap = bitmap
+            _state.value = RembgUiState.Success(
+                originalBitmap = bitmap,
+                workingBitmap = bitmap,
+                displayBitmap = bitmap,
+                effectedBitmap = bitmap,
+            )
         }
     }
 

@@ -153,6 +153,10 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
                 pendingEdit = null
                 vm.remove(uri, sourceMimeType = mime) // model mặc định isnet-general-use
             },
+            onEdit = {
+                pendingEdit = null
+                vm.edit(uri, sourceMimeType = mime) // chỉnh ảnh thẳng, không xóa nền/làm nét
+            },
         )
         return
     }

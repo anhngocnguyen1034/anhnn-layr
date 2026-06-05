@@ -7,4 +7,7 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Nền tối của LAYR (khớp colorScheme.background trong Theme.kt) — dùng làm
+         windowBackground để tránh chớp trắng lúc khởi động khi vẽ edge-to-edge. -->
+    <color name="layr_background">#FF11131A</color>
 </resources>
