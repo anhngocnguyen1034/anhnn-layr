@@ -29,7 +29,6 @@ import kotlin.math.sin
 
 private const val HANDLE_HIT_RADIUS = 60f
 private const val HANDLE_DRAW_RADIUS = 14f
-private const val HANDLE_OFFSET = 56f
 private const val BOX_PADDING = 16f
 
 @Composable
@@ -81,7 +80,8 @@ fun TextStickerLayer(
                                 val viewW = size.width.toFloat()
                                 val viewH = size.height.toFloat()
                                 val centerView = bitmapToView(selected.center, viewW, viewH, bitmapWidth, bitmapHeight)
-                                val handleLocal = Offset(0f, -box.height / 2f - HANDLE_OFFSET)
+                                // Tay nắm xoay nằm ở góc dưới-phải khung chữ.
+                                val handleLocal = Offset(box.width / 2f, box.height / 2f)
                                 val handleView = transformLocalToView(
                                     local = handleLocal,
                                     sticker = selected,
@@ -118,12 +118,14 @@ fun TextStickerLayer(
                             }
                         }
                         .pointerInput(selected.id, bitmapWidth, bitmapHeight) {
-                            detectTransformGestures { _, pan, zoom, rotation ->
+                            // 2 ngón: chỉ phóng to/thu nhỏ + di chuyển, KHÔNG xoay.
+                            // Muốn xoay thì dùng tay nắm ở góc dưới-phải.
+                            detectTransformGestures { _, pan, zoom, _ ->
                                 val bitmapPan = Offset(
                                     x = pan.x * bitmapWidth / size.width.toFloat(),
                                     y = pan.y * bitmapHeight / size.height.toFloat(),
                                 )
-                                onTransform(selected.id, bitmapPan, zoom, rotation)
+                                onTransform(selected.id, bitmapPan, zoom, 0f)
                             }
                         }
                 } else {
@@ -183,16 +185,9 @@ private fun DrawScope.drawSelectionFrame(
         )
     }
 
-    val handleLocal = Offset(0f, -halfH - HANDLE_OFFSET)
+    // Tay nắm xoay ở góc dưới-phải (giữ vào để xoay chữ theo ngón tay).
+    val handleLocal = Offset(halfW, halfH)
     val handleView = transformLocalToView(handleLocal, sticker, size.width, size.height, bitmapW, bitmapH)
-    val topCenter = transformLocalToView(Offset(0f, -halfH), sticker, size.width, size.height, bitmapW, bitmapH)
-    drawLine(
-        color = frameColor,
-        start = topCenter,
-        end = handleView,
-        strokeWidth = 2f,
-        pathEffect = dash,
-    )
     drawCircle(color = Color(0xFF4B4EEE), radius = HANDLE_DRAW_RADIUS, center = handleView)
     drawCircle(
         color = Color.White,
