@@ -4,6 +4,7 @@ import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -39,6 +40,8 @@ fun TextStickerLayer(
     bitmapHeight: Int,
     editable: Boolean,
     onTransform: (id: String, pan: Offset, zoom: Float, rotation: Float) -> Unit,
+    onStartEdit: (id: String) -> Unit = {},
+    onTapEmpty: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val selected = stickers.firstOrNull { it.id == selectedId }
@@ -47,6 +50,27 @@ fun TextStickerLayer(
     Canvas(
         modifier = modifier
             .fillMaxSize()
+            .then(
+                if (editable) {
+                    // Chạm vào chữ để sửa nội dung ngay trên ảnh; chạm chỗ trống để kết thúc.
+                    Modifier.pointerInput(stickers, bitmapWidth, bitmapHeight) {
+                        detectTapGestures { pos ->
+                            val id = hitTestSticker(
+                                context = context,
+                                stickers = stickers,
+                                pos = pos,
+                                viewW = size.width.toFloat(),
+                                viewH = size.height.toFloat(),
+                                bitmapW = bitmapWidth,
+                                bitmapH = bitmapHeight,
+                            )
+                            if (id != null) onStartEdit(id) else onTapEmpty()
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .then(
                 if (editable && selected != null) {
                     Modifier
@@ -198,6 +222,39 @@ private fun measureLocalBox(
     val height = lineHeight * lines.size
     val pad = BOX_PADDING + sticker.outlineWidth
     return Size(maxWidth + pad * 2f, height + pad * 2f)
+}
+
+/** Trả về id của chữ (trên cùng) chứa điểm chạm [pos] (toạ độ view), hoặc null. */
+private fun hitTestSticker(
+    context: android.content.Context,
+    stickers: List<TextSticker>,
+    pos: Offset,
+    viewW: Float,
+    viewH: Float,
+    bitmapW: Int,
+    bitmapH: Int,
+): String? {
+    if (viewW <= 0f || viewH <= 0f) return null
+    // Duyệt từ trên xuống (vẽ sau nằm trên).
+    for (sticker in stickers.asReversed()) {
+        val box = measureLocalBox(context, sticker)
+        val bx = pos.x * bitmapW / viewW
+        val by = pos.y * bitmapH / viewH
+        val dx = bx - sticker.center.x
+        val dy = by - sticker.center.y
+        val rad = Math.toRadians(-sticker.rotation.toDouble())
+        val cos = cos(rad).toFloat()
+        val sin = sin(rad).toFloat()
+        val rx = dx * cos - dy * sin
+        val ry = dx * sin + dy * cos
+        val scale = sticker.scale.coerceAtLeast(0.0001f)
+        val lx = rx / scale
+        val ly = ry / scale
+        if (kotlin.math.abs(lx) <= box.width / 2f && kotlin.math.abs(ly) <= box.height / 2f) {
+            return sticker.id
+        }
+    }
+    return null
 }
 
 private fun bitmapToView(

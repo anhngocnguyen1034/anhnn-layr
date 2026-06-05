@@ -23,13 +23,14 @@ import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.applyFeather
 import com.example.anhnn_layr.utils.applySubjectEffects
+import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
-import com.example.anhnn_layr.utils.centerCropBounds
-import com.example.anhnn_layr.utils.crop
+import com.example.anhnn_layr.utils.cropRotated
 import com.example.anhnn_layr.utils.decodeUprightBitmap
+import com.example.anhnn_layr.utils.mapPoint
 import com.example.anhnn_layr.utils.queryCapturedPhotos
-import com.example.anhnn_layr.utils.translatedAfterCrop
+import com.example.anhnn_layr.utils.transformedByCropFrame
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,11 @@ data class EditorState(
     val saturation: Float = 0f,
     val textStickers: List<TextSticker> = emptyList(),
     val selectedTextStickerId: String? = null,
+    // true khi đang gõ sửa nội dung chữ ngay trên ảnh (bàn phím đang mở).
+    val isEditingText: Boolean = false,
+    // Cắt ảnh: tỉ lệ khung đang chọn (null = tự do) và khung cắt tương tác hiện tại.
+    val cropAspect: Float? = null,
+    val cropFrame: CropFrame? = null,
 )
 
 @HiltViewModel
@@ -257,7 +263,8 @@ class RembgViewModel @Inject constructor(
         if (tool == EditorTool.TEXT) {
             ensureTextStickerSelected()
         } else {
-            _editor.update { it.copy(activeTool = tool) }
+            _editor.update { it.copy(activeTool = tool, isEditingText = false) }
+            if (tool == EditorTool.CROP) ensureCropFrame()
         }
     }
     fun setEraseMode(isErase: Boolean) = _editor.update { it.copy(isEraseMode = isErase) }
@@ -315,13 +322,40 @@ class RembgViewModel @Inject constructor(
 
     fun addTextSticker() {
         val success = _state.value as? RembgUiState.Success ?: return
-        val sticker = createDefaultTextSticker(success.effectedBitmap)
+        // Chữ mới bắt đầu rỗng + mở luôn chế độ gõ trên ảnh để người dùng nhập ngay.
+        val sticker = createDefaultTextSticker(success.effectedBitmap, text = "")
         _editor.update {
             it.copy(
                 activeTool = EditorTool.TEXT,
                 textStickers = it.textStickers + sticker,
                 selectedTextStickerId = sticker.id,
+                isEditingText = true,
             )
+        }
+    }
+
+    /** Bắt đầu sửa nội dung một chữ ngay trên ảnh (chạm vào chữ). */
+    fun beginTextEdit(id: String) {
+        _editor.update {
+            if (it.textStickers.none { s -> s.id == id }) it
+            else it.copy(selectedTextStickerId = id, isEditingText = true)
+        }
+    }
+
+    /** Kết thúc gõ: nếu chữ để trống thì xoá luôn sticker (chữ mới chưa nhập gì). */
+    fun endTextEdit() {
+        _editor.update { editor ->
+            val sel = editor.textStickers.firstOrNull { it.id == editor.selectedTextStickerId }
+            if (sel != null && sel.text.isBlank()) {
+                val remaining = editor.textStickers.filterNot { it.id == sel.id }
+                editor.copy(
+                    textStickers = remaining,
+                    selectedTextStickerId = remaining.lastOrNull()?.id,
+                    isEditingText = false,
+                )
+            } else {
+                editor.copy(isEditingText = false)
+            }
         }
     }
 
@@ -353,9 +387,9 @@ class RembgViewModel @Inject constructor(
         }
     }
 
-    private fun createDefaultTextSticker(bitmap: Bitmap): TextSticker = TextSticker(
+    private fun createDefaultTextSticker(bitmap: Bitmap, text: String = "Chữ mới"): TextSticker = TextSticker(
         id = UUID.randomUUID().toString(),
-        text = "Chữ mới",
+        text = text,
         center = Offset(
             x = bitmap.width / 2f,
             y = bitmap.height / 2f,
@@ -373,6 +407,7 @@ class RembgViewModel @Inject constructor(
             editor.copy(
                 textStickers = remaining,
                 selectedTextStickerId = remaining.lastOrNull()?.id,
+                isEditingText = false,
             )
         }
     }
@@ -418,25 +453,63 @@ class RembgViewModel @Inject constructor(
         }
     }
 
-    fun cropToAspect(aspectWidth: Int, aspectHeight: Int) {
+    /** Khung cắt mặc định: căn giữa, lớn nhất vừa với ảnh theo [aspect] (null = tự do). */
+    private fun defaultCropFrame(width: Int, height: Int, aspect: Float?): CropFrame {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val (fw, fh) = when {
+            aspect == null -> w to h
+            w / h > aspect -> (h * aspect) to h
+            else -> w to (w / aspect)
+        }
+        return CropFrame(cx = w / 2f, cy = h / 2f, width = fw, height = fh, rotationDeg = 0f)
+    }
+
+    /** Khi mở công cụ Cắt mà chưa có khung, tạo khung mặc định theo tỉ lệ đang chọn. */
+    private fun ensureCropFrame() {
+        if (_editor.value.cropFrame != null) return
+        val current = _state.value as? RembgUiState.Success ?: return
+        val bmp = current.effectedBitmap
+        _editor.update { it.copy(cropFrame = defaultCropFrame(bmp.width, bmp.height, it.cropAspect)) }
+    }
+
+    /** Chọn tỉ lệ khung (null = tự do): đặt lại khung cắt căn giữa theo tỉ lệ đó. */
+    fun setCropAspect(aspect: Float?) {
+        val current = _state.value as? RembgUiState.Success ?: return
+        val bmp = current.effectedBitmap
+        _editor.update {
+            it.copy(cropAspect = aspect, cropFrame = defaultCropFrame(bmp.width, bmp.height, aspect))
+        }
+    }
+
+    /** Cập nhật khung cắt khi người dùng di chuyển / xoay / phóng to trên ảnh. */
+    fun setCropFrame(frame: CropFrame) = _editor.update { it.copy(cropFrame = frame) }
+
+    /** Đặt lại khung cắt về mặc định theo tỉ lệ đang chọn. */
+    fun resetCrop() {
+        val current = _state.value as? RembgUiState.Success ?: return
+        val bmp = current.effectedBitmap
+        _editor.update { it.copy(cropFrame = defaultCropFrame(bmp.width, bmp.height, it.cropAspect)) }
+    }
+
+    /** Áp dụng cắt theo [EditorState.cropFrame] hiện tại (hỗ trợ khung xoay). */
+    fun applyCrop() {
         val proc = processedBitmap ?: return
         val orig = originalBitmap ?: return
         val current = _state.value as? RembgUiState.Success ?: return
         val ed = _editor.value
+        val frame = ed.cropFrame ?: return
 
         viewModelScope.launch {
             val cropped = withContext(Dispatchers.Default) {
-                val bounds = centerCropBounds(proc.width, proc.height, aspectWidth, aspectHeight)
-                val croppedProcessed = proc.crop(bounds)
-                val croppedOriginal = orig.crop(bounds)
-                val croppedPaths = ed.paths.translatedAfterCrop(bounds)
-                val croppedRedoStack = ed.redoStack.translatedAfterCrop(bounds)
+                val croppedProcessed = proc.cropRotated(frame)
+                val croppedOriginal = orig.cropRotated(frame)
+                val croppedPaths = ed.paths.transformedByCropFrame(frame)
+                val croppedRedoStack = ed.redoStack.transformedByCropFrame(frame)
                 val croppedTextStickers = ed.textStickers.map { sticker ->
                     sticker.copy(
-                        center = Offset(
-                            x = sticker.center.x - bounds.left,
-                            y = sticker.center.y - bounds.top,
-                        ),
+                        center = frame.mapPoint(sticker.center),
+                        rotation = sticker.rotation - frame.rotationDeg,
                     )
                 }
                 val working = buildWorkingBitmap(croppedProcessed, croppedOriginal, croppedPaths)
@@ -469,6 +542,9 @@ class RembgViewModel @Inject constructor(
                     paths = cropped.paths,
                     redoStack = cropped.redoStack,
                     textStickers = cropped.textStickers,
+                    cropAspect = null,
+                    // Tạo lại khung mặc định cho ảnh vừa cắt để có thể cắt tiếp.
+                    cropFrame = defaultCropFrame(cropped.effected.width, cropped.effected.height, null),
                 )
             }
             _state.value = RembgUiState.Success(

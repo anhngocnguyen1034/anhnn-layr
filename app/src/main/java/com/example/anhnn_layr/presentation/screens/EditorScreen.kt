@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,29 +36,39 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.anhnn_layr.presentation.components.CropOverlay
 import com.example.anhnn_layr.presentation.components.EraseCanvas
 import com.example.anhnn_layr.presentation.components.TextStickerLayer
 import com.example.anhnn_layr.presentation.components.checkerboardBackground
 import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
-import com.example.anhnn_layr.presentation.components.tools.CropPreset
 import com.example.anhnn_layr.presentation.components.tools.CropToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EffectsToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EraseToolPanel
@@ -66,6 +77,7 @@ import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
 import com.example.anhnn_layr.presentation.viewmodels.EditorTool
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
+import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.generateFinalBitmap
@@ -93,7 +105,10 @@ fun EditorScreen(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
-    onCrop: (CropPreset) -> Unit,
+    onSelectCropAspect: (Float?) -> Unit,
+    onApplyCrop: () -> Unit,
+    onResetCrop: () -> Unit,
+    onCropFrameChange: (CropFrame) -> Unit,
     onAddText: () -> Unit,
     onSelectText: (String) -> Unit,
     onTextChange: (String) -> Unit,
@@ -104,6 +119,8 @@ fun EditorScreen(
     onTextShadowRadiusChange: (Float) -> Unit,
     onTextFontSizeChange: (Float) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
+    onStartTextEdit: (String) -> Unit,
+    onEndTextEdit: () -> Unit,
     onDeleteText: () -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
@@ -171,10 +188,11 @@ fun EditorScreen(
                 onBrushSizeChange = onBrushSizeChange,
                 onUndo = onUndo,
                 onRedo = onRedo,
-                onCrop = onCrop,
+                onSelectCropAspect = onSelectCropAspect,
+                onApplyCrop = onApplyCrop,
+                onResetCrop = onResetCrop,
                 onAddText = onAddText,
                 onSelectText = onSelectText,
-                onTextChange = onTextChange,
                 onTextFontChange = onTextFontChange,
                 onTextColorChange = onTextColorChange,
                 onTextOutlineColorChange = onTextOutlineColorChange,
@@ -203,6 +221,10 @@ fun EditorScreen(
                 onTransform = { s, o -> scale = s; offset = o },
                 onCommitPath = onCommitPath,
                 onTextTransform = onTextTransform,
+                onTextChange = onTextChange,
+                onStartTextEdit = onStartTextEdit,
+                onEndTextEdit = onEndTextEdit,
+                onCropFrameChange = onCropFrameChange,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -303,6 +325,10 @@ private fun EditorPreview(
     onTransform: (Float, Offset) -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
+    onTextChange: (String) -> Unit,
+    onStartTextEdit: (String) -> Unit,
+    onEndTextEdit: () -> Unit,
+    onCropFrameChange: (CropFrame) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val imageRatio = displayBitmap.width.toFloat() / displayBitmap.height.toFloat()
@@ -328,6 +354,10 @@ private fun EditorPreview(
             onTransform = onTransform,
             onCommitPath = onCommitPath,
             onTextTransform = onTextTransform,
+            onTextChange = onTextChange,
+            onStartTextEdit = onStartTextEdit,
+            onEndTextEdit = onEndTextEdit,
+            onCropFrameChange = onCropFrameChange,
             modifier = previewSizeModifier,
         )
     }
@@ -344,6 +374,10 @@ private fun PreviewCanvas(
     onTransform: (Float, Offset) -> Unit,
     onCommitPath: (TouchPath) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
+    onTextChange: (String) -> Unit,
+    onStartTextEdit: (String) -> Unit,
+    onEndTextEdit: () -> Unit,
+    onCropFrameChange: (CropFrame) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasBg = editor.blurredBackgroundBitmap != null
@@ -415,6 +449,8 @@ private fun PreviewCanvas(
             bitmapHeight = effectedBitmap.height,
             editable = editor.activeTool == EditorTool.TEXT,
             onTransform = onTextTransform,
+            onStartEdit = onStartTextEdit,
+            onTapEmpty = onEndTextEdit,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
@@ -425,6 +461,75 @@ private fun PreviewCanvas(
                     transformOrigin = TransformOrigin(0f, 0f),
                 ),
         )
+        if (editor.activeTool == EditorTool.TEXT && editor.isEditingText) {
+            val editing = editor.textStickers.firstOrNull { it.id == editor.selectedTextStickerId }
+            if (editing != null) {
+                InlineTextEditor(
+                    stickerId = editing.id,
+                    initialText = editing.text,
+                    onTextChange = onTextChange,
+                    onDone = onEndTextEdit,
+                )
+            }
+        }
+        if (editor.activeTool == EditorTool.CROP) {
+            editor.cropFrame?.let { frame ->
+                CropOverlay(
+                    frame = frame,
+                    bitmapWidth = effectedBitmap.width,
+                    bitmapHeight = effectedBitmap.height,
+                    onFrameChange = onCropFrameChange,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Trình sửa chữ inline: một [BasicTextField] ẩn (kích thước 1dp, trong suốt) chỉ để
+ * giữ con trỏ và mở bàn phím. Nội dung gõ được phản chiếu sang sticker qua
+ * [onTextChange] nên chữ hiển thị trực tiếp trên ảnh khi gõ. Mất focus (đóng bàn
+ * phím / chạm ra ngoài) sẽ gọi [onDone].
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun InlineTextEditor(
+    stickerId: String,
+    initialText: String,
+    onTextChange: (String) -> Unit,
+    onDone: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var value by remember(stickerId) {
+        mutableStateOf(TextFieldValue(initialText, TextRange(initialText.length)))
+    }
+    var hadFocus by remember(stickerId) { mutableStateOf(false) }
+
+    BasicTextField(
+        value = value,
+        onValueChange = {
+            value = it
+            onTextChange(it.text)
+        },
+        cursorBrush = SolidColor(Color.Transparent),
+        modifier = Modifier
+            .size(1.dp)
+            .alpha(0f)
+            .focusRequester(focusRequester)
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    hadFocus = true
+                } else if (hadFocus) {
+                    onDone()
+                }
+            },
+    )
+
+    LaunchedEffect(stickerId) {
+        focusRequester.requestFocus()
+        keyboard?.show()
     }
 }
 
@@ -446,10 +551,11 @@ private fun EditorToolDock(
     onBrushSizeChange: (Float) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
-    onCrop: (CropPreset) -> Unit,
+    onSelectCropAspect: (Float?) -> Unit,
+    onApplyCrop: () -> Unit,
+    onResetCrop: () -> Unit,
     onAddText: () -> Unit,
     onSelectText: (String) -> Unit,
-    onTextChange: (String) -> Unit,
     onTextFontChange: (TextStickerFont) -> Unit,
     onTextColorChange: (Color) -> Unit,
     onTextOutlineColorChange: (Color) -> Unit,
@@ -507,13 +613,17 @@ private fun EditorToolDock(
                         canUndo = editor.paths.isNotEmpty(),
                         canRedo = editor.redoStack.isNotEmpty(),
                     )
-                    EditorTool.CROP -> CropToolPanel(onCrop = onCrop)
+                    EditorTool.CROP -> CropToolPanel(
+                        selectedAspect = editor.cropAspect,
+                        onSelectAspect = onSelectCropAspect,
+                        onApply = onApplyCrop,
+                        onReset = onResetCrop,
+                    )
                     EditorTool.TEXT -> TextToolPanel(
                         stickers = editor.textStickers,
                         selectedId = editor.selectedTextStickerId,
                         onAdd = onAddText,
                         onSelect = onSelectText,
-                        onTextChange = onTextChange,
                         onFontChange = onTextFontChange,
                         onTextColorChange = onTextColorChange,
                         onOutlineColorChange = onTextOutlineColorChange,
