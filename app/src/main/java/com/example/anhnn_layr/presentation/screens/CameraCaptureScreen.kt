@@ -1,8 +1,11 @@
 package com.example.anhnn_layr.presentation.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,10 +40,12 @@ import androidx.compose.material.icons.outlined.Cameraswitch
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -62,8 +67,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
 import com.example.anhnn_layr.presentation.components.CustomZoomSlider
@@ -86,6 +94,8 @@ fun CameraCaptureScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
     var hasPermission by remember {
@@ -94,22 +104,80 @@ fun CameraCaptureScreen(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
+    // Người dùng đã từ chối kèm "Không hỏi lại": gọi launch() lúc này hệ thống sẽ
+    // bỏ qua, nên phải hướng họ vào Cài đặt để tự bật quyền.
+    var permanentlyDenied by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasPermission = granted }
+    ) { granted ->
+        hasPermission = granted
+        if (!granted && activity != null) {
+            permanentlyDenied = !ActivityCompat.shouldShowRequestPermissionRationale(
+                activity,
+                Manifest.permission.CAMERA,
+            )
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
+
+    // Khi quay lại từ màn Cài đặt, kiểm tra lại quyền để cập nhật giao diện ngay.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+                hasPermission = granted
+                if (granted) permanentlyDenied = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val openAppSettings = {
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null),
+                ),
+            )
+        }
+        Unit
+    }
+
+    // Hiện hộp thoại hỏi mở Cài đặt khi người dùng đã từ chối quyền trước đó.
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     var capturedFile by remember { mutableStateOf<File?>(null) }
     var saving by remember { mutableStateOf(false) }
 
     if (!hasPermission) {
         CameraPermissionDenied(
-            onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+            permanentlyDenied = permanentlyDenied,
+            onGrant = {
+                if (permanentlyDenied) {
+                    showSettingsDialog = true
+                } else {
+                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            },
             onBack = onBack,
         )
+        if (showSettingsDialog) {
+            OpenSettingsDialog(
+                onConfirm = {
+                    showSettingsDialog = false
+                    openAppSettings()
+                },
+                onDismiss = { showSettingsDialog = false },
+            )
+        }
         return
     }
 
@@ -475,6 +543,7 @@ private fun CapturedPreview(
 
 @Composable
 private fun CameraPermissionDenied(
+    permanentlyDenied: Boolean,
     onGrant: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -510,12 +579,49 @@ private fun CameraPermissionDenied(
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = "Hãy cấp quyền camera để chụp ảnh và chỉnh sửa ngay.",
+                text = if (permanentlyDenied) {
+                    "Bạn đã từ chối quyền camera. Hãy mở Cài đặt để bật quyền rồi quay lại."
+                } else {
+                    "Hãy cấp quyền camera để chụp ảnh và chỉnh sửa ngay."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
             )
-            AnhnnGradientButton(text = "Cấp quyền", onClick = onGrant)
+            AnhnnGradientButton(
+                text = if (permanentlyDenied) "Mở cài đặt" else "Cấp quyền",
+                onClick = onGrant,
+            )
         }
     }
+}
+
+/**
+ * Hộp thoại hỏi người dùng có muốn mở Cài đặt để tự bật quyền hay không, hiện khi
+ * họ đã từ chối quyền camera từ trước (không gọi lại hộp thoại hệ thống được nữa).
+ */
+@Composable
+private fun OpenSettingsDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Cần quyền truy cập camera") },
+        text = {
+            Text(
+                text = "Bạn đã từ chối quyền camera. Hãy mở Cài đặt để bật quyền rồi quay lại app.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = "Mở cài đặt", color = AnhnnPurpleDark)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Đóng")
+            }
+        },
+    )
 }
