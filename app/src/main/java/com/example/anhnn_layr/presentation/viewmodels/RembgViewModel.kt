@@ -426,7 +426,8 @@ class RembgViewModel @Inject constructor(
     }
     fun setSelectedTextFontSize(size: Float) = updateSelectedTextSticker { it.copy(fontSize = size) }
 
-    fun transformTextSticker(id: String, pan: Offset, zoom: Float, rotation: Float) {
+    /** [rotationDeg] tính bằng độ (tay nắm xoay truyền delta theo độ). */
+    fun transformTextSticker(id: String, pan: Offset, zoom: Float, rotationDeg: Float) {
         _editor.update { editor ->
             editor.copy(
                 textStickers = editor.textStickers.map { sticker ->
@@ -434,7 +435,7 @@ class RembgViewModel @Inject constructor(
                     sticker.copy(
                         center = sticker.center + pan,
                         scale = (sticker.scale * zoom).coerceIn(0.25f, 5f),
-                        rotation = sticker.rotation + Math.toDegrees(rotation.toDouble()).toFloat(),
+                        rotation = sticker.rotation + rotationDeg,
                     )
                 },
                 selectedTextStickerId = id,
