@@ -3,6 +3,12 @@ package com.example.anhnn_layr.presentation.screens
 import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,7 +25,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -55,6 +60,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -171,7 +177,36 @@ fun EditorScreen(
             )
         },
         bottomBar = {
-            EditorToolDock(
+            ToolTabs(active = editor.activeTool, onSelect = onToolChange)
+        },
+    ) { inner ->
+        // Ảnh chiếm trọn vùng giữa thanh trên và thanh tab; bảng công cụ nổi đè
+        // lên đáy ảnh (translucent) để không co nhỏ ảnh khi chỉnh sửa.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner),
+            contentAlignment = Alignment.Center,
+        ) {
+            EditorPreview(
+                displayBitmap = displayBitmap,
+                effectedBitmap = effectedBitmap,
+                originalBitmap = originalBitmap,
+                editor = editor,
+                scale = scale,
+                offset = offset,
+                onTransform = { s, o -> scale = s; offset = o },
+                onCommitPath = onCommitPath,
+                onTextTransform = onTextTransform,
+                onTextChange = onTextChange,
+                onStartTextEdit = onStartTextEdit,
+                onEndTextEdit = onEndTextEdit,
+                onCropFrameChange = onCropFrameChange,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            FloatingToolPanel(
                 editor = editor,
                 onColorChange = onColorChange,
                 onFeatherChange = onFeatherChange,
@@ -200,32 +235,7 @@ fun EditorScreen(
                 onTextShadowRadiusChange = onTextShadowRadiusChange,
                 onTextFontSizeChange = onTextFontSizeChange,
                 onDeleteText = onDeleteText,
-                onToolChange = onToolChange,
-            )
-        },
-    ) { inner ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            EditorPreview(
-                displayBitmap = displayBitmap,
-                effectedBitmap = effectedBitmap,
-                originalBitmap = originalBitmap,
-                editor = editor,
-                scale = scale,
-                offset = offset,
-                onTransform = { s, o -> scale = s; offset = o },
-                onCommitPath = onCommitPath,
-                onTextTransform = onTextTransform,
-                onTextChange = onTextChange,
-                onStartTextEdit = onStartTextEdit,
-                onEndTextEdit = onEndTextEdit,
-                onCropFrameChange = onCropFrameChange,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
@@ -535,7 +545,7 @@ private fun InlineTextEditor(
 }
 
 @Composable
-private fun EditorToolDock(
+private fun FloatingToolPanel(
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onFeatherChange: (Float) -> Unit,
@@ -564,21 +574,31 @@ private fun EditorToolDock(
     onTextShadowRadiusChange: (Float) -> Unit,
     onTextFontSizeChange: (Float) -> Unit,
     onDeleteText: () -> Unit,
-    onToolChange: (EditorTool) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(
+    AnimatedContent(
+        targetState = editor.activeTool,
+        transitionSpec = {
+            (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 4 }) togetherWith
+                (fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 4 })
+        },
+        label = "tool-panel",
+        modifier = modifier.fillMaxWidth(),
+    ) { tool ->
+        Surface(
+            // Thẻ nổi mờ đè lên đáy ảnh: chặn chạm xuyên qua để không vẽ nhầm lên
+            // canvas phía dưới; bo góc + đổ bóng cho cảm giác "nổi".
             modifier = Modifier
                 .fillMaxWidth()
-                // KHÔNG dùng imePadding: để bàn phím đè lên thanh công cụ thay vì
-                // đẩy layout lên (đẩy lên sẽ làm Scaffold co lại và ảnh bị scale nhỏ).
-                .navigationBarsPadding(),
+                .padding(horizontal = 10.dp)
+                .padding(bottom = 10.dp)
+                .blockPointerThrough(),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            tonalElevation = 3.dp,
+            shadowElevation = 10.dp,
         ) {
-            AnimatedContent(targetState = editor.activeTool, label = "tool-panel") { tool ->
+            Column(modifier = Modifier.fillMaxWidth()) {
                 when (tool) {
                     EditorTool.BACKGROUND -> BackgroundToolPanel(
                         selected = editor.selectedColor,
@@ -636,7 +656,16 @@ private fun EditorToolDock(
                     )
                 }
             }
-            ToolTabs(active = editor.activeTool, onSelect = onToolChange)
+        }
+    }
+}
+
+/** Chặn mọi sự kiện chạm rơi xuống lớp phía dưới (canvas ảnh) khi chạm vào thẻ. */
+private fun Modifier.blockPointerThrough(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            event.changes.forEach { if (!it.isConsumed) it.consume() }
         }
     }
 }
