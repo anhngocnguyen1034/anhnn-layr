@@ -56,6 +56,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
@@ -86,6 +88,7 @@ import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.TouchPath
+import com.example.anhnn_layr.utils.colorAdjustMatrixOrNull
 import com.example.anhnn_layr.utils.generateFinalBitmap
 import com.example.anhnn_layr.utils.pickSaveFormat
 import com.example.anhnn_layr.utils.saveBitmapToGallery
@@ -145,6 +148,11 @@ fun EditorScreen(
                 bgColor = editor.selectedColor,
                 bgBitmap = editor.blurredBackgroundBitmap,
                 textStickers = editor.textStickers,
+                subjectColorMatrix = colorAdjustMatrixOrNull(
+                    editor.brightness,
+                    editor.contrast,
+                    editor.saturation,
+                ),
             )
             val hasTransparency = editor.selectedColor == Color.Transparent &&
                 editor.blurredBackgroundBitmap == null
@@ -438,6 +446,12 @@ private fun PreviewCanvas(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
+            // Màu áp bằng ColorFilter (GPU) để đổi tức thời khi kéo slider, không
+            // phải nướng lại bitmap.
+            val colorFilter = remember(editor.brightness, editor.contrast, editor.saturation) {
+                colorAdjustMatrixOrNull(editor.brightness, editor.contrast, editor.saturation)
+                    ?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
+            }
             Image(
                 bitmap = effectedBitmap.asImageBitmap(),
                 contentDescription = "Ảnh đã xoá nền",
@@ -451,6 +465,7 @@ private fun PreviewCanvas(
                         transformOrigin = TransformOrigin(0f, 0f),
                     ),
                 contentScale = ContentScale.Fit,
+                colorFilter = colorFilter,
             )
         }
         TextStickerLayer(

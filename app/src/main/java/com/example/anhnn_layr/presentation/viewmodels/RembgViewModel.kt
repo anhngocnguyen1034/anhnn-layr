@@ -290,20 +290,13 @@ class RembgViewModel @Inject constructor(
         recomposeEffected()
     }
 
-    fun setBrightness(value: Float) {
-        _editor.update { it.copy(brightness = value) }
-        recomposeEffected()
-    }
+    // Màu (brightness/contrast/saturation) áp bằng ColorFilter ở preview/khi xuất,
+    // KHÔNG nướng lại bitmap — chỉ cập nhật state để preview đổi màu tức thời.
+    fun setBrightness(value: Float) = _editor.update { it.copy(brightness = value) }
 
-    fun setContrast(value: Float) {
-        _editor.update { it.copy(contrast = value) }
-        recomposeEffected()
-    }
+    fun setContrast(value: Float) = _editor.update { it.copy(contrast = value) }
 
-    fun setSaturation(value: Float) {
-        _editor.update { it.copy(saturation = value) }
-        recomposeEffected()
-    }
+    fun setSaturation(value: Float) = _editor.update { it.copy(saturation = value) }
 
     fun useOriginalAsBackground() {
         val orig = originalBitmap ?: return
@@ -520,9 +513,6 @@ class RembgViewModel @Inject constructor(
                     outlineWidth = ed.outlineWidth,
                     outlineColor = ed.outlineColor,
                     shadowRadius = ed.shadowRadius,
-                    brightness = ed.brightness,
-                    contrast = ed.contrast,
-                    saturation = ed.saturation,
                 )
                 CroppedEditorState(
                     original = croppedOriginal,
@@ -618,9 +608,6 @@ class RembgViewModel @Inject constructor(
                 outlineWidth = ed.outlineWidth,
                 outlineColor = ed.outlineColor,
                 shadowRadius = ed.shadowRadius,
-                brightness = ed.brightness,
-                contrast = ed.contrast,
-                saturation = ed.saturation,
             )
             Triple(working, display, effected)
         }
@@ -643,9 +630,6 @@ class RembgViewModel @Inject constructor(
                 outlineWidth = ed.outlineWidth,
                 outlineColor = ed.outlineColor,
                 shadowRadius = ed.shadowRadius,
-                brightness = ed.brightness,
-                contrast = ed.contrast,
-                saturation = ed.saturation,
             )
         }
         val now = _state.value

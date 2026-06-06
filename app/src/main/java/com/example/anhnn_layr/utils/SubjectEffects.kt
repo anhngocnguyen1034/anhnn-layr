@@ -19,20 +19,18 @@ val OUTLINE_PRESETS = listOf(
     OutlinePreset("Cam neon", Color(0xFFFF6F00)),
 )
 
+/**
+ * Nướng outline + shadow vào subject. KHÔNG xử lý màu (brightness/contrast/
+ * saturation) — màu được áp bằng ColorFilter ở preview/khi xuất để cập nhật
+ * realtime, xem [colorAdjustMatrixOrNull].
+ */
 fun applySubjectEffects(
     subject: Bitmap,
     outlineWidth: Float,
     outlineColor: Color,
     shadowRadius: Float,
-    brightness: Float,
-    contrast: Float,
-    saturation: Float,
 ): Bitmap {
-    val noEffects = outlineWidth <= 0.5f &&
-        shadowRadius <= 0.5f &&
-        brightness == 0f &&
-        contrast == 0f &&
-        saturation == 0f
+    val noEffects = outlineWidth <= 0.5f && shadowRadius <= 0.5f
     if (noEffects) return subject
 
     val w = subject.width
@@ -46,8 +44,17 @@ fun applySubjectEffects(
     if (outlineWidth > 0.5f) {
         drawOutline(canvas, subject, outlineWidth, outlineColor)
     }
-    drawColoredSubject(canvas, subject, brightness, contrast, saturation)
+    canvas.drawBitmap(subject, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
     return out
+}
+
+/**
+ * Ma trận màu 4x5 (20 float) cho brightness/contrast/saturation, hoặc null nếu
+ * không chỉnh gì. Dùng chung cho ColorFilter (preview) và khi xuất ảnh.
+ */
+fun colorAdjustMatrixOrNull(brightness: Float, contrast: Float, saturation: Float): FloatArray? {
+    if (brightness == 0f && contrast == 0f && saturation == 0f) return null
+    return buildAdjustmentMatrix(brightness, contrast, saturation).array.copyOf()
 }
 
 private fun drawShadow(canvas: Canvas, subject: Bitmap, radius: Float) {
@@ -88,22 +95,6 @@ private fun drawOutline(canvas: Canvas, subject: Bitmap, width: Float, color: Co
     }
     canvas.drawBitmap(grown, offsetXY[0].toFloat(), offsetXY[1].toFloat(), tintPaint)
     grown.recycle()
-}
-
-private fun drawColoredSubject(
-    canvas: Canvas,
-    subject: Bitmap,
-    brightness: Float,
-    contrast: Float,
-    saturation: Float,
-) {
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    if (brightness != 0f || contrast != 0f || saturation != 0f) {
-        paint.colorFilter = ColorMatrixColorFilter(
-            buildAdjustmentMatrix(brightness, contrast, saturation)
-        )
-    }
-    canvas.drawBitmap(subject, 0f, 0f, paint)
 }
 
 private fun buildAdjustmentMatrix(brightness: Float, contrast: Float, saturation: Float): ColorMatrix {
