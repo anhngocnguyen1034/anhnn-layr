@@ -3,17 +3,12 @@ package com.example.anhnn_layr.presentation.components.tools
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -54,7 +49,6 @@ fun TextToolPanel(
     selectedId: String?,
     onAdd: () -> Unit,
     onSelect: (String) -> Unit,
-    onTextChange: (String) -> Unit,
     onFontChange: (TextStickerFont) -> Unit,
     onTextColorChange: (Color) -> Unit,
     onOutlineColorChange: (Color) -> Unit,
@@ -93,29 +87,11 @@ fun TextToolPanel(
             }
         }
 
-        var editorOpen by remember(selectedId) { mutableStateOf(false) }
-        OutlinedButton(
-            onClick = { editorOpen = true },
-            enabled = selected != null,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Outlined.Edit, contentDescription = null)
-            Text(
-                text = selected?.text?.ifBlank { "Sửa nội dung..." } ?: "Sửa nội dung...",
-                modifier = Modifier.padding(start = 8.dp),
-                maxLines = 1,
-            )
-        }
-        if (editorOpen && selected != null) {
-            TextContentDialog(
-                initial = selected.text,
-                onConfirm = {
-                    onTextChange(it)
-                    editorOpen = false
-                },
-                onDismiss = { editorOpen = false },
-            )
-        }
+        Text(
+            text = "Chạm vào chữ trên ảnh để sửa nội dung.",
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         FontDropdown(
             selected = selected?.font ?: TextStickerFont.INTER,
@@ -143,34 +119,6 @@ fun TextToolPanel(
         ToolSliderRow("Viền", selected?.outlineWidth ?: 0f, 0f..24f, " px", onOutlineWidthChange)
         ToolSliderRow("Bóng", selected?.shadowRadius ?: 0f, 0f..32f, "", onShadowRadiusChange)
     }
-}
-
-@Composable
-private fun TextContentDialog(
-    initial: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var value by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Nội dung") },
-        text = {
-            TextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = false,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(value) }) { Text("Xong") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Huỷ") }
-        },
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
