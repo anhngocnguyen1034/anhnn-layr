@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -575,7 +574,8 @@ private fun EditorToolDock(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .imePadding()
+                // KHÔNG dùng imePadding: để bàn phím đè lên thanh công cụ thay vì
+                // đẩy layout lên (đẩy lên sẽ làm Scaffold co lại và ảnh bị scale nhỏ).
                 .navigationBarsPadding(),
         ) {
             AnimatedContent(targetState = editor.activeTool, label = "tool-panel") { tool ->
