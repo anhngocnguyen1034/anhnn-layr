@@ -13,6 +13,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -140,6 +141,8 @@ fun EditorScreen(
     val ctx = LocalContext.current
     var scale by remember(workingBitmap) { mutableStateOf(1f) }
     var offset by remember(workingBitmap) { mutableStateOf(Offset.Zero) }
+    // Chạm vào ảnh để ẩn/hiện bảng công cụ nổi, xem trọn ảnh trực quan.
+    var controlsVisible by remember { mutableStateOf(true) }
     val exportImage: () -> Unit = {
         runCatching {
             val finalBmp = generateFinalBitmap(
@@ -185,7 +188,13 @@ fun EditorScreen(
             )
         },
         bottomBar = {
-            ToolTabs(active = editor.activeTool, onSelect = onToolChange)
+            ToolTabs(
+                active = editor.activeTool,
+                onSelect = { tool ->
+                    controlsVisible = true // đổi công cụ thì hiện lại bảng
+                    onToolChange(tool)
+                },
+            )
         },
     ) { inner ->
         // Ảnh chiếm trọn vùng giữa thanh trên và thanh tab; bảng công cụ nổi đè
@@ -210,10 +219,17 @@ fun EditorScreen(
                 onStartTextEdit = onStartTextEdit,
                 onEndTextEdit = onEndTextEdit,
                 onCropFrameChange = onCropFrameChange,
+                onToggleControls = { controlsVisible = !controlsVisible },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = controlsVisible,
+                enter = slideInVertically(tween(220)) { it } + fadeIn(tween(180)),
+                exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
             FloatingToolPanel(
                 editor = editor,
                 onColorChange = onColorChange,
@@ -243,8 +259,8 @@ fun EditorScreen(
                 onTextShadowRadiusChange = onTextShadowRadiusChange,
                 onTextFontSizeChange = onTextFontSizeChange,
                 onDeleteText = onDeleteText,
-                modifier = Modifier.align(Alignment.BottomCenter),
             )
+            }
         }
     }
 }
@@ -348,6 +364,7 @@ private fun EditorPreview(
     onStartTextEdit: (String) -> Unit,
     onEndTextEdit: () -> Unit,
     onCropFrameChange: (CropFrame) -> Unit,
+    onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val imageRatio = displayBitmap.width.toFloat() / displayBitmap.height.toFloat()
@@ -377,6 +394,7 @@ private fun EditorPreview(
             onStartTextEdit = onStartTextEdit,
             onEndTextEdit = onEndTextEdit,
             onCropFrameChange = onCropFrameChange,
+            onToggleControls = onToggleControls,
             modifier = previewSizeModifier,
         )
     }
@@ -397,6 +415,7 @@ private fun PreviewCanvas(
     onStartTextEdit: (String) -> Unit,
     onEndTextEdit: () -> Unit,
     onCropFrameChange: (CropFrame) -> Unit,
+    onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasBg = editor.blurredBackgroundBitmap != null
@@ -415,7 +434,12 @@ private fun PreviewCanvas(
         modifier = modifier
             .clip(shape)
             .then(baseMod)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            // Chạm vào ảnh (chỗ công cụ không xử lý) để ẩn/hiện bảng công cụ.
+            // Là cha của các lớp công cụ nên chỉ nhận tap khi chúng không tiêu thụ.
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onToggleControls() })
+            },
         contentAlignment = Alignment.Center,
     ) {
         editor.blurredBackgroundBitmap?.let { bg ->
