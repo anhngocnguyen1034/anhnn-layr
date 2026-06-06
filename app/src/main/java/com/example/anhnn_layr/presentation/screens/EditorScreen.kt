@@ -660,12 +660,15 @@ private fun FloatingToolPanel(
     }
 }
 
-/** Chặn mọi sự kiện chạm rơi xuống lớp phía dưới (canvas ảnh) khi chạm vào thẻ. */
+/**
+ * Chặn chạm rơi xuống canvas ảnh phía dưới: chỉ cần thẻ là một node pointer-input
+ * phủ hết vùng thì nó đã che (occlude) sibling bên dưới — KHÔNG được consume sự
+ * kiện, nếu không slider/nút con trong thẻ sẽ bị huỷ cử chỉ và "chết".
+ */
 private fun Modifier.blockPointerThrough(): Modifier = pointerInput(Unit) {
     awaitPointerEventScope {
         while (true) {
-            val event = awaitPointerEvent()
-            event.changes.forEach { if (!it.isConsumed) it.consume() }
+            awaitPointerEvent()
         }
     }
 }
