@@ -9,6 +9,7 @@ import com.example.anhnn_layr.domain.models.DraftSnapshot
 import com.example.anhnn_layr.domain.models.DraftSummary
 import com.example.anhnn_layr.domain.models.EditorStateSnapshot
 import com.example.anhnn_layr.domain.repository.DraftRepository
+import com.example.anhnn_layr.utils.BrushMode
 import com.example.anhnn_layr.utils.TouchPath
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -23,7 +24,10 @@ import javax.inject.Singleton
 private data class PointDto(val x: Float, val y: Float)
 private data class TouchPathDto(
     val points: List<PointDto>,
-    val isErase: Boolean,
+    // Bản nháp cũ chỉ có isErase; bản mới dùng mode (ERASE/RESTORE/PAINT) + color.
+    val isErase: Boolean? = null,
+    val mode: String? = null,
+    val color: Int? = null,
     val brushSize: Float,
 )
 
@@ -57,7 +61,8 @@ class DraftRepositoryImpl @Inject constructor(
         val dtoList = touchPaths.map { tp ->
             TouchPathDto(
                 points = tp.points.map { PointDto(it.x, it.y) },
-                isErase = tp.isErase,
+                mode = tp.mode.name,
+                color = tp.color,
                 brushSize = tp.brushSize,
             )
         }
@@ -83,9 +88,12 @@ class DraftRepositoryImpl @Inject constructor(
         val pathDtoType = object : TypeToken<List<TouchPathDto>>() {}.type
         val pathDtos: List<TouchPathDto> = gson.fromJson(row.serializedTouchPaths, pathDtoType)
         val paths = pathDtos.map { dto ->
+            val mode = dto.mode?.let { runCatching { BrushMode.valueOf(it) }.getOrNull() }
+                ?: if (dto.isErase != false) BrushMode.ERASE else BrushMode.RESTORE
             TouchPath(
                 points = dto.points.map { androidx.compose.ui.geometry.Offset(it.x, it.y) },
-                isErase = dto.isErase,
+                mode = mode,
+                color = dto.color ?: android.graphics.Color.BLACK,
                 brushSize = dto.brushSize,
             )
         }

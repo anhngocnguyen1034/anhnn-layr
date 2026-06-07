@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,6 +46,9 @@ fun TextStickerLayer(
 ) {
     val selected = stickers.firstOrNull { it.id == selectedId }
     val context = LocalContext.current
+    // Đọc sticker mới nhất trong cử chỉ mà không phải khởi động lại pointerInput
+    // (nếu key theo rotation/scale/center, cử chỉ xoay sẽ bị huỷ giữa chừng).
+    val selectedState = rememberUpdatedState(selected)
 
     Canvas(
         modifier = modifier
@@ -73,18 +77,19 @@ fun TextStickerLayer(
             .then(
                 if (editable && selected != null) {
                     Modifier
-                        .pointerInput(selected.id, bitmapWidth, bitmapHeight, selected.rotation, selected.scale, selected.fontSize, selected.text, selected.font, selected.center) {
+                        .pointerInput(selected.id, bitmapWidth, bitmapHeight) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
-                                val box = measureLocalBox(context, selected)
+                                val sel = selectedState.value ?: return@awaitEachGesture
+                                val box = measureLocalBox(context, sel)
                                 val viewW = size.width.toFloat()
                                 val viewH = size.height.toFloat()
-                                val centerView = bitmapToView(selected.center, viewW, viewH, bitmapWidth, bitmapHeight)
+                                val centerView = bitmapToView(sel.center, viewW, viewH, bitmapWidth, bitmapHeight)
                                 // Tay nắm xoay nằm ở góc dưới-phải khung chữ.
                                 val handleLocal = Offset(box.width / 2f, box.height / 2f)
                                 val handleView = transformLocalToView(
                                     local = handleLocal,
-                                    sticker = selected,
+                                    sticker = sel,
                                     viewW = viewW,
                                     viewH = viewH,
                                     bitmapW = bitmapWidth,
@@ -111,7 +116,7 @@ fun TextStickerLayer(
                                     val deltaDeg = Math.toDegrees(angle - lastAngle).toFloat()
                                     lastAngle = angle
                                     if (deltaDeg != 0f) {
-                                        onTransform(selected.id, Offset.Zero, 1f, deltaDeg)
+                                        onTransform(sel.id, Offset.Zero, 1f, deltaDeg)
                                     }
                                     change.consume()
                                 }

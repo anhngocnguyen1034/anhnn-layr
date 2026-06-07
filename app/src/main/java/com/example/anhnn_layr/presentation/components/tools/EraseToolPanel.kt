@@ -24,12 +24,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.example.anhnn_layr.presentation.components.BackgroundColorPicker
+import com.example.anhnn_layr.utils.BrushMode
 
 @Composable
 fun EraseToolPanel(
-    isEraseMode: Boolean,
+    brushMode: BrushMode,
+    brushColor: Color,
     brushSize: Float,
-    onModeChange: (Boolean) -> Unit,
+    onModeChange: (BrushMode) -> Unit,
+    onColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -57,14 +61,26 @@ fun EraseToolPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip(
-                selected = isEraseMode,
-                onClick = { onModeChange(true) },
+                selected = brushMode == BrushMode.ERASE,
+                onClick = { onModeChange(BrushMode.ERASE) },
                 label = { Text("Cọ xoá") },
             )
             FilterChip(
-                selected = !isEraseMode,
-                onClick = { onModeChange(false) },
+                selected = brushMode == BrushMode.RESTORE,
+                onClick = { onModeChange(BrushMode.RESTORE) },
                 label = { Text("Khôi phục") },
+            )
+            FilterChip(
+                selected = brushMode == BrushMode.PAINT,
+                onClick = { onModeChange(BrushMode.PAINT) },
+                label = { Text("Tô màu") },
+            )
+        }
+        if (brushMode == BrushMode.PAINT) {
+            BackgroundColorPicker(
+                selected = brushColor,
+                onSelected = onColorChange,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
         Row(
@@ -77,13 +93,16 @@ fun EraseToolPanel(
                 contentAlignment = Alignment.Center,
             ) {
                 val previewSize = (brushSize / maxBrush * 32f).coerceAtLeast(4f).dp
+                val previewColor = when (brushMode) {
+                    BrushMode.ERASE -> Color(0xFFE53935)
+                    BrushMode.RESTORE -> Color(0xFF43A047)
+                    BrushMode.PAINT -> brushColor
+                }
                 Box(
                     modifier = Modifier
                         .size(previewSize)
                         .clip(CircleShape)
-                        .background(
-                            if (isEraseMode) Color(0xFFE53935) else Color(0xFF43A047)
-                        ),
+                        .background(previewColor),
                 )
             }
             Text(

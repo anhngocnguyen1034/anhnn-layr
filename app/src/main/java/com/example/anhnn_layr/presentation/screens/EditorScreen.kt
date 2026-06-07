@@ -3,10 +3,17 @@ package com.example.anhnn_layr.presentation.screens
 import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,8 +26,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -52,10 +57,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -78,9 +86,11 @@ import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
 import com.example.anhnn_layr.presentation.viewmodels.EditorTool
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
+import com.example.anhnn_layr.utils.BrushMode
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.TouchPath
+import com.example.anhnn_layr.utils.colorAdjustMatrixOrNull
 import com.example.anhnn_layr.utils.generateFinalBitmap
 import com.example.anhnn_layr.utils.pickSaveFormat
 import com.example.anhnn_layr.utils.saveBitmapToGallery
@@ -94,15 +104,13 @@ fun EditorScreen(
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onToolChange: (EditorTool) -> Unit,
-    onEraseModeChange: (Boolean) -> Unit,
+    onBrushModeChange: (BrushMode) -> Unit,
+    onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onFeatherChange: (Float) -> Unit,
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
     onUseOriginalBackground: () -> Unit,
-    onOutlineWidthChange: (Float) -> Unit,
-    onOutlineColorChange: (Color) -> Unit,
-    onShadowRadiusChange: (Float) -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
@@ -132,6 +140,8 @@ fun EditorScreen(
     val ctx = LocalContext.current
     var scale by remember(workingBitmap) { mutableStateOf(1f) }
     var offset by remember(workingBitmap) { mutableStateOf(Offset.Zero) }
+    // Chạm vào ảnh để ẩn/hiện bảng công cụ nổi, xem trọn ảnh trực quan.
+    var controlsVisible by remember { mutableStateOf(true) }
     val exportImage: () -> Unit = {
         runCatching {
             val finalBmp = generateFinalBitmap(
@@ -140,6 +150,11 @@ fun EditorScreen(
                 bgColor = editor.selectedColor,
                 bgBitmap = editor.blurredBackgroundBitmap,
                 textStickers = editor.textStickers,
+                subjectColorMatrix = colorAdjustMatrixOrNull(
+                    editor.brightness,
+                    editor.contrast,
+                    editor.saturation,
+                ),
             )
             val hasTransparency = editor.selectedColor == Color.Transparent &&
                 editor.blurredBackgroundBitmap == null
@@ -172,44 +187,22 @@ fun EditorScreen(
             )
         },
         bottomBar = {
-            EditorToolDock(
-                editor = editor,
-                onColorChange = onColorChange,
-                onFeatherChange = onFeatherChange,
-                onBackgroundImageSelected = onBackgroundImageSelected,
-                onBackgroundBlurChange = onBackgroundBlurChange,
-                onUseOriginalBackground = onUseOriginalBackground,
-                onOutlineWidthChange = onOutlineWidthChange,
-                onOutlineColorChange = onOutlineColorChange,
-                onShadowRadiusChange = onShadowRadiusChange,
-                onBrightnessChange = onBrightnessChange,
-                onContrastChange = onContrastChange,
-                onSaturationChange = onSaturationChange,
-                onEraseModeChange = onEraseModeChange,
-                onBrushSizeChange = onBrushSizeChange,
-                onUndo = onUndo,
-                onRedo = onRedo,
-                onSelectCropAspect = onSelectCropAspect,
-                onApplyCrop = onApplyCrop,
-                onResetCrop = onResetCrop,
-                onAddText = onAddText,
-                onSelectText = onSelectText,
-                onTextFontChange = onTextFontChange,
-                onTextColorChange = onTextColorChange,
-                onTextOutlineColorChange = onTextOutlineColorChange,
-                onTextOutlineWidthChange = onTextOutlineWidthChange,
-                onTextShadowRadiusChange = onTextShadowRadiusChange,
-                onTextFontSizeChange = onTextFontSizeChange,
-                onDeleteText = onDeleteText,
-                onToolChange = onToolChange,
+            ToolTabs(
+                active = editor.activeTool,
+                onSelect = { tool ->
+                    controlsVisible = true // đổi công cụ thì hiện lại bảng
+                    onToolChange(tool)
+                },
+                showBackground = editor.isBackgroundRemoved,
             )
         },
     ) { inner ->
+        // Ảnh chiếm trọn vùng giữa thanh trên và thanh tab; bảng công cụ nổi đè
+        // lên đáy ảnh (translucent) để không co nhỏ ảnh khi chỉnh sửa.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(inner)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(inner),
             contentAlignment = Alignment.Center,
         ) {
             EditorPreview(
@@ -226,8 +219,46 @@ fun EditorScreen(
                 onStartTextEdit = onStartTextEdit,
                 onEndTextEdit = onEndTextEdit,
                 onCropFrameChange = onCropFrameChange,
-                modifier = Modifier.fillMaxSize(),
+                onToggleControls = { controlsVisible = !controlsVisible },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = controlsVisible,
+                enter = slideInVertically(tween(220)) { it } + fadeIn(tween(180)),
+                exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+            FloatingToolPanel(
+                editor = editor,
+                onColorChange = onColorChange,
+                onFeatherChange = onFeatherChange,
+                onBackgroundImageSelected = onBackgroundImageSelected,
+                onBackgroundBlurChange = onBackgroundBlurChange,
+                onUseOriginalBackground = onUseOriginalBackground,
+                onBrightnessChange = onBrightnessChange,
+                onContrastChange = onContrastChange,
+                onSaturationChange = onSaturationChange,
+                onBrushModeChange = onBrushModeChange,
+                onBrushColorChange = onBrushColorChange,
+                onBrushSizeChange = onBrushSizeChange,
+                onUndo = onUndo,
+                onRedo = onRedo,
+                onSelectCropAspect = onSelectCropAspect,
+                onApplyCrop = onApplyCrop,
+                onResetCrop = onResetCrop,
+                onAddText = onAddText,
+                onSelectText = onSelectText,
+                onTextFontChange = onTextFontChange,
+                onTextColorChange = onTextColorChange,
+                onTextOutlineColorChange = onTextOutlineColorChange,
+                onTextOutlineWidthChange = onTextOutlineWidthChange,
+                onTextShadowRadiusChange = onTextShadowRadiusChange,
+                onTextFontSizeChange = onTextFontSizeChange,
+                onDeleteText = onDeleteText,
+            )
+            }
         }
     }
 }
@@ -331,6 +362,7 @@ private fun EditorPreview(
     onStartTextEdit: (String) -> Unit,
     onEndTextEdit: () -> Unit,
     onCropFrameChange: (CropFrame) -> Unit,
+    onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val imageRatio = displayBitmap.width.toFloat() / displayBitmap.height.toFloat()
@@ -360,6 +392,7 @@ private fun EditorPreview(
             onStartTextEdit = onStartTextEdit,
             onEndTextEdit = onEndTextEdit,
             onCropFrameChange = onCropFrameChange,
+            onToggleControls = onToggleControls,
             modifier = previewSizeModifier,
         )
     }
@@ -380,6 +413,7 @@ private fun PreviewCanvas(
     onStartTextEdit: (String) -> Unit,
     onEndTextEdit: () -> Unit,
     onCropFrameChange: (CropFrame) -> Unit,
+    onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasBg = editor.blurredBackgroundBitmap != null
@@ -398,7 +432,12 @@ private fun PreviewCanvas(
         modifier = modifier
             .clip(shape)
             .then(baseMod)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            // Chạm vào ảnh (chỗ công cụ không xử lý) để ẩn/hiện bảng công cụ.
+            // Là cha của các lớp công cụ nên chỉ nhận tap khi chúng không tiêu thụ.
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onToggleControls() })
+            },
         contentAlignment = Alignment.Center,
     ) {
         editor.blurredBackgroundBitmap?.let { bg ->
@@ -420,7 +459,8 @@ private fun PreviewCanvas(
             EraseCanvas(
                 workingBitmap = displayBitmap,
                 originalBitmap = originalBitmap,
-                isEraseMode = editor.isEraseMode,
+                brushMode = editor.brushMode,
+                brushColor = editor.brushColor,
                 brushSize = editor.brushSize,
                 scale = scale,
                 offset = offset,
@@ -429,8 +469,16 @@ private fun PreviewCanvas(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
+            // Màu áp bằng ColorFilter (GPU) để đổi tức thời khi kéo slider, không
+            // phải nướng lại bitmap.
+            val colorFilter = remember(editor.brightness, editor.contrast, editor.saturation) {
+                colorAdjustMatrixOrNull(editor.brightness, editor.contrast, editor.saturation)
+                    ?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
+            }
+            // Bọc 1 lần / mỗi bitmap, tránh tạo wrapper mới mỗi frame khi kéo slider.
+            val effectedImage = remember(effectedBitmap) { effectedBitmap.asImageBitmap() }
             Image(
-                bitmap = effectedBitmap.asImageBitmap(),
+                bitmap = effectedImage,
                 contentDescription = "Ảnh đã xoá nền",
                 modifier = Modifier
                     .fillMaxSize()
@@ -442,6 +490,7 @@ private fun PreviewCanvas(
                         transformOrigin = TransformOrigin(0f, 0f),
                     ),
                 contentScale = ContentScale.Fit,
+                colorFilter = colorFilter,
             )
         }
         TextStickerLayer(
@@ -536,20 +585,18 @@ private fun InlineTextEditor(
 }
 
 @Composable
-private fun EditorToolDock(
+private fun FloatingToolPanel(
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onFeatherChange: (Float) -> Unit,
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
     onUseOriginalBackground: () -> Unit,
-    onOutlineWidthChange: (Float) -> Unit,
-    onOutlineColorChange: (Color) -> Unit,
-    onShadowRadiusChange: (Float) -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
-    onEraseModeChange: (Boolean) -> Unit,
+    onBrushModeChange: (BrushMode) -> Unit,
+    onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -565,20 +612,31 @@ private fun EditorToolDock(
     onTextShadowRadiusChange: (Float) -> Unit,
     onTextFontSizeChange: (Float) -> Unit,
     onDeleteText: () -> Unit,
-    onToolChange: (EditorTool) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(
+    AnimatedContent(
+        targetState = editor.activeTool,
+        transitionSpec = {
+            (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 4 }) togetherWith
+                (fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 4 })
+        },
+        label = "tool-panel",
+        modifier = modifier.fillMaxWidth(),
+    ) { tool ->
+        Surface(
+            // Thẻ nổi mờ đè lên đáy ảnh: chặn chạm xuyên qua để không vẽ nhầm lên
+            // canvas phía dưới; bo góc + đổ bóng cho cảm giác "nổi".
             modifier = Modifier
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding(),
+                .padding(horizontal = 10.dp)
+                .padding(bottom = 10.dp)
+                .blockPointerThrough(),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            tonalElevation = 3.dp,
+            shadowElevation = 10.dp,
         ) {
-            AnimatedContent(targetState = editor.activeTool, label = "tool-panel") { tool ->
+            Column(modifier = Modifier.fillMaxWidth()) {
                 when (tool) {
                     EditorTool.BACKGROUND -> BackgroundToolPanel(
                         selected = editor.selectedColor,
@@ -592,12 +650,6 @@ private fun EditorToolDock(
                         onUseOriginalBackground = onUseOriginalBackground,
                     )
                     EditorTool.EFFECTS -> EffectsToolPanel(
-                        outlineWidth = editor.outlineWidth,
-                        outlineColor = editor.outlineColor,
-                        onOutlineWidthChange = onOutlineWidthChange,
-                        onOutlineColorChange = onOutlineColorChange,
-                        shadowRadius = editor.shadowRadius,
-                        onShadowRadiusChange = onShadowRadiusChange,
                         brightness = editor.brightness,
                         contrast = editor.contrast,
                         saturation = editor.saturation,
@@ -606,9 +658,11 @@ private fun EditorToolDock(
                         onSaturationChange = onSaturationChange,
                     )
                     EditorTool.ERASE -> EraseToolPanel(
-                        isEraseMode = editor.isEraseMode,
+                        brushMode = editor.brushMode,
+                        brushColor = editor.brushColor,
                         brushSize = editor.brushSize,
-                        onModeChange = onEraseModeChange,
+                        onModeChange = onBrushModeChange,
+                        onColorChange = onBrushColorChange,
                         onBrushSizeChange = onBrushSizeChange,
                         onUndo = onUndo,
                         onRedo = onRedo,
@@ -636,7 +690,19 @@ private fun EditorToolDock(
                     )
                 }
             }
-            ToolTabs(active = editor.activeTool, onSelect = onToolChange)
+        }
+    }
+}
+
+/**
+ * Chặn chạm rơi xuống canvas ảnh phía dưới: chỉ cần thẻ là một node pointer-input
+ * phủ hết vùng thì nó đã che (occlude) sibling bên dưới — KHÔNG được consume sự
+ * kiện, nếu không slider/nút con trong thẻ sẽ bị huỷ cử chỉ và "chết".
+ */
+private fun Modifier.blockPointerThrough(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent()
         }
     }
 }

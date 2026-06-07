@@ -3,6 +3,8 @@ package com.example.anhnn_layr.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Rect
 import androidx.compose.ui.graphics.Color
@@ -14,6 +16,8 @@ fun generateFinalBitmap(
     bgColor: Color,
     bgBitmap: Bitmap? = null,
     textStickers: List<TextSticker> = emptyList(),
+    // Ma trận màu (brightness/contrast/saturation) áp lên lớp subject, khớp preview.
+    subjectColorMatrix: FloatArray? = null,
 ): Bitmap {
     val w = subjectBitmap.width
     val h = subjectBitmap.height
@@ -30,7 +34,11 @@ fun generateFinalBitmap(
         canvas.drawColor(bgColor.toArgb())
     }
 
-    canvas.drawBitmap(subjectBitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+    val subjectPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    subjectColorMatrix?.let {
+        subjectPaint.colorFilter = ColorMatrixColorFilter(ColorMatrix(it))
+    }
+    canvas.drawBitmap(subjectBitmap, 0f, 0f, subjectPaint)
     drawTextStickers(context, canvas, textStickers)
     return out
 }
