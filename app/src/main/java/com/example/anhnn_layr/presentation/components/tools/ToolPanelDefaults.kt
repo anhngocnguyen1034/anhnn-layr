@@ -15,6 +15,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -85,6 +89,13 @@ internal fun ToolSliderRow(
     labelWidth: Dp = 82.dp,
     valueWidth: Dp = 48.dp,
 ) {
+    // Giá trị cục bộ trong lúc kéo: thumb bám ngón tay tức thì, không chờ vòng
+    // cập nhật qua StateFlow → recompose → quay lại (vốn gây cảm giác khựng/trễ).
+    // Khi thả tay (onValueChangeFinished) hoặc giá trị ngoài đổi thì nhả về prop.
+    var dragValue by remember { mutableStateOf<Float?>(null) }
+    val clamped = value.coerceIn(range.start, range.endInclusive)
+    val display = dragValue ?: clamped
+
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -96,8 +107,12 @@ internal fun ToolSliderRow(
             modifier = Modifier.width(labelWidth),
         )
         Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
+            value = display,
+            onValueChange = {
+                dragValue = it
+                onValueChange(it)
+            },
+            onValueChangeFinished = { dragValue = null },
             valueRange = range,
             enabled = enabled,
             modifier = Modifier
@@ -105,7 +120,7 @@ internal fun ToolSliderRow(
                 .padding(horizontal = 8.dp),
         )
         Text(
-            text = formatToolSliderValue(value, range) + suffix,
+            text = formatToolSliderValue(display, range) + suffix,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(valueWidth),

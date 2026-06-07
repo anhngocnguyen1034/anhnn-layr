@@ -475,8 +475,10 @@ private fun PreviewCanvas(
                 colorAdjustMatrixOrNull(editor.brightness, editor.contrast, editor.saturation)
                     ?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
             }
+            // Bọc 1 lần / mỗi bitmap, tránh tạo wrapper mới mỗi frame khi kéo slider.
+            val effectedImage = remember(effectedBitmap) { effectedBitmap.asImageBitmap() }
             Image(
-                bitmap = effectedBitmap.asImageBitmap(),
+                bitmap = effectedImage,
                 contentDescription = "Ảnh đã xoá nền",
                 modifier = Modifier
                     .fillMaxSize()
