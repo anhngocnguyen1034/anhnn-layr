@@ -17,12 +17,12 @@ import com.example.anhnn_layr.domain.usecases.LoadDraftUseCase
 import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.domain.usecases.SaveDraftUseCase
+import com.example.anhnn_layr.utils.BrushMode
 import com.example.anhnn_layr.utils.GalleryPhoto
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.applyFeather
-import com.example.anhnn_layr.utils.applySubjectEffects
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
@@ -68,7 +68,12 @@ data class EditorState(
     val selectedColor: Color = Color.Transparent,
     val activeTool: EditorTool = EditorTool.BACKGROUND,
     val sourceMimeType: String? = null,
-    val isEraseMode: Boolean = true,
+    // true khi ảnh đã thực sự tách nền (luồng "Xoá nền"). Với ảnh thường (luồng
+    // "Chỉnh ảnh") toàn ảnh là khối đục, nên tab "Nền" (màu nền/ảnh nền/mờ nền/mịn
+    // viền) bị ẩn vì không có tác dụng.
+    val isBackgroundRemoved: Boolean = false,
+    val brushMode: BrushMode = BrushMode.ERASE,
+    val brushColor: Color = Color(0xFFE53935),
     val brushSize: Float = 40f,
     val paths: List<TouchPath> = emptyList(),
     val redoStack: List<TouchPath> = emptyList(),
@@ -76,9 +81,6 @@ data class EditorState(
     val backgroundBitmap: Bitmap? = null,
     val backgroundBlur: Float = 0f,
     val blurredBackgroundBitmap: Bitmap? = null,
-    val outlineWidth: Float = 0f,
-    val outlineColor: Color = Color.White,
-    val shadowRadius: Float = 0f,
     val brightness: Float = 0f,
     val contrast: Float = 0f,
     val saturation: Float = 0f,
@@ -122,17 +124,11 @@ class RembgViewModel @Inject constructor(
     private var currentSourceUri: Uri? = null
 
     private val subjectTrigger = Channel<Boolean>(Channel.CONFLATED)
-    private val effectsTrigger = Channel<Unit>(Channel.CONFLATED)
 
     init {
         viewModelScope.launch {
             subjectTrigger.consumeAsFlow().collect { rebuildWorking ->
                 runSubjectRecompose(rebuildWorking)
-            }
-        }
-        viewModelScope.launch {
-            effectsTrigger.consumeAsFlow().collect {
-                runEffectsRecompose()
             }
         }
     }
@@ -143,7 +139,7 @@ class RembgViewModel @Inject constructor(
         sourceMimeType: String? = null,
     ) {
         _state.value = RembgUiState.Loading(sourceUri = uri)
-        _editor.value = EditorState(sourceMimeType = sourceMimeType)
+        _editor.value = EditorState(sourceMimeType = sourceMimeType, isBackgroundRemoved = true)
         currentSourceUri = uri
         viewModelScope.launch {
             runCatching { removeBackground(uri, model = model) }
@@ -179,7 +175,12 @@ class RembgViewModel @Inject constructor(
      */
     fun edit(uri: Uri, sourceMimeType: String? = null) {
         _state.value = RembgUiState.Loading(sourceUri = uri)
-        _editor.value = EditorState(sourceMimeType = sourceMimeType)
+        // Ảnh thường: chưa tách nền → ẩn tab "Nền", mở thẳng tab "Cọ".
+        _editor.value = EditorState(
+            sourceMimeType = sourceMimeType,
+            isBackgroundRemoved = false,
+            activeTool = EditorTool.ERASE,
+        )
         currentSourceUri = uri
         viewModelScope.launch {
             val bitmap = withContext(Dispatchers.IO) {
@@ -267,27 +268,13 @@ class RembgViewModel @Inject constructor(
             if (tool == EditorTool.CROP) ensureCropFrame()
         }
     }
-    fun setEraseMode(isErase: Boolean) = _editor.update { it.copy(isEraseMode = isErase) }
+    fun setBrushMode(mode: BrushMode) = _editor.update { it.copy(brushMode = mode) }
+    fun setBrushColor(color: Color) = _editor.update { it.copy(brushColor = color) }
     fun setBrushSize(size: Float) = _editor.update { it.copy(brushSize = size) }
 
     fun setFeatherRadius(radius: Float) {
         _editor.update { it.copy(featherRadius = radius) }
         recomposeSubject(rebuildWorking = false)
-    }
-
-    fun setOutlineWidth(width: Float) {
-        _editor.update { it.copy(outlineWidth = width) }
-        recomposeEffected()
-    }
-
-    fun setOutlineColor(color: Color) {
-        _editor.update { it.copy(outlineColor = color) }
-        recomposeEffected()
-    }
-
-    fun setShadowRadius(radius: Float) {
-        _editor.update { it.copy(shadowRadius = radius) }
-        recomposeEffected()
     }
 
     // Màu (brightness/contrast/saturation) áp bằng ColorFilter ở preview/khi xuất,
@@ -508,12 +495,7 @@ class RembgViewModel @Inject constructor(
                 }
                 val working = buildWorkingBitmap(croppedProcessed, croppedOriginal, croppedPaths)
                 val display = applyFeather(working, ed.featherRadius)
-                val effected = applySubjectEffects(
-                    subject = display,
-                    outlineWidth = ed.outlineWidth,
-                    outlineColor = ed.outlineColor,
-                    shadowRadius = ed.shadowRadius,
-                )
+                val effected = display
                 CroppedEditorState(
                     original = croppedOriginal,
                     processed = croppedProcessed,
@@ -589,10 +571,6 @@ class RembgViewModel @Inject constructor(
         subjectTrigger.trySend(rebuildWorking)
     }
 
-    private fun recomposeEffected() {
-        effectsTrigger.trySend(Unit)
-    }
-
     private suspend fun runSubjectRecompose(rebuildWorking: Boolean) {
         val proc = processedBitmap ?: return
         val orig = originalBitmap ?: return
@@ -603,38 +581,15 @@ class RembgViewModel @Inject constructor(
                 buildWorkingBitmap(proc, orig, ed.paths)
             } else current.workingBitmap
             val display = applyFeather(working, ed.featherRadius)
-            val effected = applySubjectEffects(
-                subject = display,
-                outlineWidth = ed.outlineWidth,
-                outlineColor = ed.outlineColor,
-                shadowRadius = ed.shadowRadius,
-            )
-            Triple(working, display, effected)
+            working to display
         }
         val now = _state.value
         if (now is RembgUiState.Success) {
             _state.value = now.copy(
                 workingBitmap = result.first,
                 displayBitmap = result.second,
-                effectedBitmap = result.third,
+                effectedBitmap = result.second,
             )
-        }
-    }
-
-    private suspend fun runEffectsRecompose() {
-        val current = _state.value as? RembgUiState.Success ?: return
-        val ed = _editor.value
-        val effected = withContext(Dispatchers.Default) {
-            applySubjectEffects(
-                subject = current.displayBitmap,
-                outlineWidth = ed.outlineWidth,
-                outlineColor = ed.outlineColor,
-                shadowRadius = ed.shadowRadius,
-            )
-        }
-        val now = _state.value
-        if (now is RembgUiState.Success) {
-            _state.value = now.copy(effectedBitmap = effected)
         }
     }
 
@@ -658,25 +613,31 @@ class RembgViewModel @Inject constructor(
 private fun EditorState.toSnapshot(): EditorStateSnapshot = EditorStateSnapshot(
     selectedColorArgb = selectedColor.toArgb().toLong() and 0xFFFFFFFFL,
     sourceMimeType = sourceMimeType,
-    isEraseMode = isEraseMode,
+    brushMode = brushMode.name,
+    brushColorArgb = brushColor.toArgb().toLong() and 0xFFFFFFFFL,
     brushSize = brushSize,
     featherRadius = featherRadius,
     backgroundBlur = backgroundBlur,
-    outlineWidth = outlineWidth,
-    outlineColorArgb = outlineColor.toArgb().toLong() and 0xFFFFFFFFL,
-    shadowRadius = shadowRadius,
     brightness = brightness,
     contrast = contrast,
     saturation = saturation,
     textStickers = textStickers.map { it.toSnapshot() },
     selectedTextStickerId = selectedTextStickerId,
+    isBackgroundRemoved = isBackgroundRemoved,
 )
 
-private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorState = EditorState(
+private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorState {
+    // Bản nháp cũ thiếu cờ → mặc định coi như đã xoá nền (giữ nguyên hành vi cũ).
+    val bgRemoved = isBackgroundRemoved ?: true
+    // Bản nháp cũ chỉ có isEraseMode (true/false) → suy ra ERASE/RESTORE.
+    val mode = brushMode?.let { runCatching { BrushMode.valueOf(it) }.getOrNull() }
+        ?: if (isEraseMode != false) BrushMode.ERASE else BrushMode.RESTORE
+    return EditorState(
     selectedColor = Color(selectedColorArgb.toInt()),
-    activeTool = EditorTool.BACKGROUND,
+    activeTool = if (bgRemoved) EditorTool.BACKGROUND else EditorTool.ERASE,
     sourceMimeType = sourceMimeType,
-    isEraseMode = isEraseMode,
+    brushMode = mode,
+    brushColor = brushColorArgb?.let { Color(it.toInt()) } ?: Color(0xFFE53935),
     brushSize = brushSize,
     paths = paths,
     redoStack = emptyList(),
@@ -684,15 +645,14 @@ private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorSta
     backgroundBitmap = null,
     backgroundBlur = backgroundBlur,
     blurredBackgroundBitmap = null,
-    outlineWidth = outlineWidth,
-    outlineColor = Color(outlineColorArgb.toInt()),
-    shadowRadius = shadowRadius,
     brightness = brightness,
     contrast = contrast,
     saturation = saturation,
     textStickers = textStickers.orEmpty().map { it.toTextSticker() },
     selectedTextStickerId = selectedTextStickerId,
-)
+    isBackgroundRemoved = bgRemoved,
+    )
+}
 
 private fun TextSticker.toSnapshot(): TextStickerSnapshot = TextStickerSnapshot(
     id = id,

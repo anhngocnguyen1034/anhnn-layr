@@ -86,6 +86,7 @@ import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
 import com.example.anhnn_layr.presentation.viewmodels.EditorTool
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
+import com.example.anhnn_layr.utils.BrushMode
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.TouchPath
@@ -103,15 +104,13 @@ fun EditorScreen(
     editor: EditorState,
     onColorChange: (Color) -> Unit,
     onToolChange: (EditorTool) -> Unit,
-    onEraseModeChange: (Boolean) -> Unit,
+    onBrushModeChange: (BrushMode) -> Unit,
+    onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onFeatherChange: (Float) -> Unit,
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
     onUseOriginalBackground: () -> Unit,
-    onOutlineWidthChange: (Float) -> Unit,
-    onOutlineColorChange: (Color) -> Unit,
-    onShadowRadiusChange: (Float) -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
@@ -194,6 +193,7 @@ fun EditorScreen(
                     controlsVisible = true // đổi công cụ thì hiện lại bảng
                     onToolChange(tool)
                 },
+                showBackground = editor.isBackgroundRemoved,
             )
         },
     ) { inner ->
@@ -237,13 +237,11 @@ fun EditorScreen(
                 onBackgroundImageSelected = onBackgroundImageSelected,
                 onBackgroundBlurChange = onBackgroundBlurChange,
                 onUseOriginalBackground = onUseOriginalBackground,
-                onOutlineWidthChange = onOutlineWidthChange,
-                onOutlineColorChange = onOutlineColorChange,
-                onShadowRadiusChange = onShadowRadiusChange,
                 onBrightnessChange = onBrightnessChange,
                 onContrastChange = onContrastChange,
                 onSaturationChange = onSaturationChange,
-                onEraseModeChange = onEraseModeChange,
+                onBrushModeChange = onBrushModeChange,
+                onBrushColorChange = onBrushColorChange,
                 onBrushSizeChange = onBrushSizeChange,
                 onUndo = onUndo,
                 onRedo = onRedo,
@@ -461,7 +459,8 @@ private fun PreviewCanvas(
             EraseCanvas(
                 workingBitmap = displayBitmap,
                 originalBitmap = originalBitmap,
-                isEraseMode = editor.isEraseMode,
+                brushMode = editor.brushMode,
+                brushColor = editor.brushColor,
                 brushSize = editor.brushSize,
                 scale = scale,
                 offset = offset,
@@ -591,13 +590,11 @@ private fun FloatingToolPanel(
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
     onBackgroundBlurChange: (Float) -> Unit,
     onUseOriginalBackground: () -> Unit,
-    onOutlineWidthChange: (Float) -> Unit,
-    onOutlineColorChange: (Color) -> Unit,
-    onShadowRadiusChange: (Float) -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
-    onEraseModeChange: (Boolean) -> Unit,
+    onBrushModeChange: (BrushMode) -> Unit,
+    onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -651,12 +648,6 @@ private fun FloatingToolPanel(
                         onUseOriginalBackground = onUseOriginalBackground,
                     )
                     EditorTool.EFFECTS -> EffectsToolPanel(
-                        outlineWidth = editor.outlineWidth,
-                        outlineColor = editor.outlineColor,
-                        onOutlineWidthChange = onOutlineWidthChange,
-                        onOutlineColorChange = onOutlineColorChange,
-                        shadowRadius = editor.shadowRadius,
-                        onShadowRadiusChange = onShadowRadiusChange,
                         brightness = editor.brightness,
                         contrast = editor.contrast,
                         saturation = editor.saturation,
@@ -665,9 +656,11 @@ private fun FloatingToolPanel(
                         onSaturationChange = onSaturationChange,
                     )
                     EditorTool.ERASE -> EraseToolPanel(
-                        isEraseMode = editor.isEraseMode,
+                        brushMode = editor.brushMode,
+                        brushColor = editor.brushColor,
                         brushSize = editor.brushSize,
-                        onModeChange = onEraseModeChange,
+                        onModeChange = onBrushModeChange,
+                        onColorChange = onBrushColorChange,
                         onBrushSizeChange = onBrushSizeChange,
                         onUndo = onUndo,
                         onRedo = onRedo,

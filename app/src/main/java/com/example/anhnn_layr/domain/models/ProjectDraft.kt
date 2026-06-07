@@ -23,18 +23,20 @@ data class DraftSnapshot(
 data class EditorStateSnapshot(
     val selectedColorArgb: Long,
     val sourceMimeType: String?,
-    val isEraseMode: Boolean,
+    // Bản nháp cũ chỉ có isEraseMode; bản mới dùng brushMode (ERASE/RESTORE/PAINT).
+    val isEraseMode: Boolean? = null,
+    val brushMode: String? = null,
+    val brushColorArgb: Long? = null,
     val brushSize: Float,
     val featherRadius: Float,
     val backgroundBlur: Float,
-    val outlineWidth: Float,
-    val outlineColorArgb: Long,
-    val shadowRadius: Float,
     val brightness: Float,
     val contrast: Float,
     val saturation: Float,
     val textStickers: List<TextStickerSnapshot>? = null,
     val selectedTextStickerId: String? = null,
+    // null = bản nháp cũ (trước khi có luồng "Chỉnh ảnh") → coi như đã xoá nền.
+    val isBackgroundRemoved: Boolean? = null,
 )
 
 data class TextStickerSnapshot(
