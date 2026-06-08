@@ -175,11 +175,11 @@ class RembgViewModel @Inject constructor(
      */
     fun edit(uri: Uri, sourceMimeType: String? = null) {
         _state.value = RembgUiState.Loading(sourceUri = uri)
-        // Ảnh thường: chưa tách nền → ẩn tab "Nền", mở thẳng tab "Cọ".
+        // Ảnh thường: chưa tách nền → ẩn tab "Nền" và "Cọ", mở thẳng tab "FX".
         _editor.value = EditorState(
             sourceMimeType = sourceMimeType,
             isBackgroundRemoved = false,
-            activeTool = EditorTool.ERASE,
+            activeTool = EditorTool.EFFECTS,
         )
         currentSourceUri = uri
         viewModelScope.launch {
@@ -634,7 +634,7 @@ private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorSta
         ?: if (isEraseMode != false) BrushMode.ERASE else BrushMode.RESTORE
     return EditorState(
     selectedColor = Color(selectedColorArgb.toInt()),
-    activeTool = if (bgRemoved) EditorTool.BACKGROUND else EditorTool.ERASE,
+    activeTool = if (bgRemoved) EditorTool.BACKGROUND else EditorTool.EFFECTS,
     sourceMimeType = sourceMimeType,
     brushMode = mode,
     brushColor = brushColorArgb?.let { Color(it.toInt()) } ?: Color(0xFFE53935),
