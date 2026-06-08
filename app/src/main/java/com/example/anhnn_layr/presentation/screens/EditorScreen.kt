@@ -12,8 +12,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,7 +74,6 @@ import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.components.CropOverlay
 import com.example.anhnn_layr.presentation.components.EraseCanvas
 import com.example.anhnn_layr.presentation.components.TextStickerLayer
-import com.example.anhnn_layr.presentation.components.checkerboardBackground
 import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
 import com.example.anhnn_layr.presentation.components.tools.CropToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EffectsToolPanel
@@ -140,8 +137,6 @@ fun EditorScreen(
     val ctx = LocalContext.current
     var scale by remember(workingBitmap) { mutableStateOf(1f) }
     var offset by remember(workingBitmap) { mutableStateOf(Offset.Zero) }
-    // Chạm vào ảnh để ẩn/hiện bảng công cụ nổi, xem trọn ảnh trực quan.
-    var controlsVisible by remember { mutableStateOf(true) }
     val exportImage: () -> Unit = {
         runCatching {
             val finalBmp = generateFinalBitmap(
@@ -189,21 +184,17 @@ fun EditorScreen(
         bottomBar = {
             ToolTabs(
                 active = editor.activeTool,
-                onSelect = { tool ->
-                    controlsVisible = true // đổi công cụ thì hiện lại bảng
-                    onToolChange(tool)
-                },
+                onSelect = onToolChange,
                 showBackground = editor.isBackgroundRemoved,
             )
         },
     ) { inner ->
-        // Ảnh chiếm trọn vùng giữa thanh trên và thanh tab; bảng công cụ nổi đè
-        // lên đáy ảnh (translucent) để không co nhỏ ảnh khi chỉnh sửa.
-        Box(
+        // Ảnh ở vùng trên, bảng công cụ là vùng RIÊNG bên dưới (ngăn cách rõ, không
+        // đè lên ảnh) với chiều cao CỐ ĐỊNH nên ảnh không nhảy khi đổi tab.
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner),
-            contentAlignment = Alignment.Center,
         ) {
             EditorPreview(
                 displayBitmap = displayBitmap,
@@ -219,17 +210,11 @@ fun EditorScreen(
                 onStartTextEdit = onStartTextEdit,
                 onEndTextEdit = onEndTextEdit,
                 onCropFrameChange = onCropFrameChange,
-                onToggleControls = { controlsVisible = !controlsVisible },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(Color.Black),
             )
-            androidx.compose.animation.AnimatedVisibility(
-                visible = controlsVisible,
-                enter = slideInVertically(tween(220)) { it } + fadeIn(tween(180)),
-                exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
             FloatingToolPanel(
                 editor = editor,
                 onColorChange = onColorChange,
@@ -258,7 +243,6 @@ fun EditorScreen(
                 onTextFontSizeChange = onTextFontSizeChange,
                 onDeleteText = onDeleteText,
             )
-            }
         }
     }
 }
@@ -362,7 +346,6 @@ private fun EditorPreview(
     onStartTextEdit: (String) -> Unit,
     onEndTextEdit: () -> Unit,
     onCropFrameChange: (CropFrame) -> Unit,
-    onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val imageRatio = displayBitmap.width.toFloat() / displayBitmap.height.toFloat()
@@ -392,7 +375,6 @@ private fun EditorPreview(
             onStartTextEdit = onStartTextEdit,
             onEndTextEdit = onEndTextEdit,
             onCropFrameChange = onCropFrameChange,
-            onToggleControls = onToggleControls,
             modifier = previewSizeModifier,
         )
     }
@@ -413,31 +395,18 @@ private fun PreviewCanvas(
     onStartTextEdit: (String) -> Unit,
     onEndTextEdit: () -> Unit,
     onCropFrameChange: (CropFrame) -> Unit,
-    onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasBg = editor.blurredBackgroundBitmap != null
-    val shape = RoundedCornerShape(8.dp)
     val baseMod = when {
         hasBg -> Modifier
-        editor.selectedColor == Color.Transparent -> Modifier.checkerboardBackground(
-            cellSize = 14.dp,
-            light = Color(0xFFFFFFFF),
-            dark = Color(0xFFE1E3EC),
-        )
+        // Vùng trong suốt để lộ nền đen của canvas (bỏ ô caro cho gọn mắt).
+        editor.selectedColor == Color.Transparent -> Modifier
         else -> Modifier.background(editor.selectedColor)
     }
 
     Box(
-        modifier = modifier
-            .clip(shape)
-            .then(baseMod)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            // Chạm vào ảnh (chỗ công cụ không xử lý) để ẩn/hiện bảng công cụ.
-            // Là cha của các lớp công cụ nên chỉ nhận tap khi chúng không tiêu thụ.
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onToggleControls() })
-            },
+        modifier = modifier.then(baseMod),
         contentAlignment = Alignment.Center,
     ) {
         editor.blurredBackgroundBitmap?.let { bg ->
@@ -624,17 +593,14 @@ private fun FloatingToolPanel(
         modifier = modifier.fillMaxWidth(),
     ) { tool ->
         Surface(
-            // Thẻ nổi mờ đè lên đáy ảnh: chặn chạm xuyên qua để không vẽ nhầm lên
-            // canvas phía dưới; bo góc + đổ bóng cho cảm giác "nổi".
+            // Vùng công cụ RIÊNG dưới ảnh: nền đặc, mép vuông (không bo góc) + đổ
+            // bóng lên trên để ngăn cách rõ với ảnh, không đè/ảnh hưởng đến ảnh.
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
-                .padding(bottom = 10.dp)
                 .blockPointerThrough(),
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-            tonalElevation = 3.dp,
-            shadowElevation = 10.dp,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp,
+            shadowElevation = 12.dp,
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 when (tool) {
