@@ -1,19 +1,23 @@
 package com.example.anhnn_layr.presentation.components.tools
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Crop169
+import androidx.compose.material.icons.outlined.Crop32
+import androidx.compose.material.icons.outlined.CropFree
+import androidx.compose.material.icons.outlined.CropLandscape
+import androidx.compose.material.icons.outlined.CropPortrait
+import androidx.compose.material.icons.outlined.CropSquare
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
 
@@ -21,18 +25,18 @@ data class CropPreset(
     val label: String,
     // null = tự do (giữ nguyên tỉ lệ khung khi phóng to/thu nhỏ)
     val aspect: Float?,
+    val icon: ImageVector,
 )
 
 val CropPresets = listOf(
-    CropPreset("Tự do", null),
-    CropPreset("1:1", 1f),
-    CropPreset("9:16", 9f / 16f),
-    CropPreset("16:9", 16f / 9f),
-    CropPreset("4:3", 4f / 3f),
-    CropPreset("3:2", 3f / 2f),
+    CropPreset("Tự do", null, Icons.Outlined.CropFree),
+    CropPreset("1:1", 1f, Icons.Outlined.CropSquare),
+    CropPreset("9:16", 9f / 16f, Icons.Outlined.CropPortrait),
+    CropPreset("16:9", 16f / 9f, Icons.Outlined.Crop169),
+    CropPreset("4:3", 4f / 3f, Icons.Outlined.CropLandscape),
+    CropPreset("3:2", 3f / 2f, Icons.Outlined.Crop32),
 )
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CropToolPanel(
     selectedAspect: Float?,
@@ -41,30 +45,17 @@ fun CropToolPanel(
     onReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ToolPanelColumn(
-        title = "Cắt ảnh",
-        modifier = modifier,
-    ) {
-        ToolSectionLabel("Tỉ lệ khung")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+    ToolPanelColumn(title = "Cắt ảnh", modifier = modifier) {
+        ToolItemStrip {
             CropPresets.forEach { preset ->
-                FilterChip(
+                ToolItemCard(
+                    label = preset.label,
+                    icon = preset.icon,
                     selected = preset.aspect == selectedAspect,
                     onClick = { onSelectAspect(preset.aspect) },
-                    label = { Text(preset.label) },
                 )
             }
         }
-
-        Text(
-            text = "Giữ trong khung để di chuyển • góc dưới-trái để xoay • " +
-                "góc trên-phải để phóng to/thu nhỏ.",
-            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),

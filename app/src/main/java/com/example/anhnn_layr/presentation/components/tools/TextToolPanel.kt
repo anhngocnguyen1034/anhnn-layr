@@ -7,7 +7,13 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BorderColor
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FontDownload
+import androidx.compose.material.icons.outlined.FormatColorText
+import androidx.compose.material.icons.outlined.FormatSize
+import androidx.compose.material.icons.outlined.LineWeight
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -15,6 +21,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -25,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -43,6 +51,15 @@ private val TEXT_COLORS = listOf(
     BgColorOption("Tím", Color(0xFF8E24AA)),
 )
 
+private enum class TextSection(val label: String, val icon: ImageVector) {
+    FONT("Font", Icons.Outlined.FontDownload),
+    TEXT_COLOR("Màu chữ", Icons.Outlined.FormatColorText),
+    OUTLINE_COLOR("Màu viền", Icons.Outlined.BorderColor),
+    SIZE("Cỡ chữ", Icons.Outlined.FormatSize),
+    OUTLINE("Viền", Icons.Outlined.LineWeight),
+    SHADOW("Bóng", Icons.Outlined.Layers),
+}
+
 @Composable
 fun TextToolPanel(
     stickers: List<TextSticker>,
@@ -59,10 +76,11 @@ fun TextToolPanel(
     modifier: Modifier = Modifier,
 ) {
     val selected = stickers.firstOrNull { it.id == selectedId }
+    var section by remember { mutableStateOf(TextSection.FONT) }
+
     ToolPanelColumn(
         title = "Chữ",
         modifier = modifier,
-        scrollable = true,
         trailing = {
             IconButton(onClick = onAdd) {
                 Icon(Icons.Outlined.Add, contentDescription = "Thêm chữ")
@@ -85,39 +103,72 @@ fun TextToolPanel(
                     )
                 }
             }
+        } else {
+            Text(
+                text = "Chạm + để thêm chữ, rồi chạm vào chữ trên ảnh để sửa.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
-        Text(
-            text = "Chạm vào chữ trên ảnh để sửa nội dung.",
-            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // Nội dung mục đang chọn ở trên.
+        when (section) {
+            TextSection.FONT -> FontDropdown(
+                selected = selected?.font ?: TextStickerFont.INTER,
+                enabled = selected != null,
+                onSelected = onFontChange,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TextSection.TEXT_COLOR -> BackgroundColorPicker(
+                selected = selected?.textColor ?: Color.White,
+                onSelected = onTextColorChange,
+                options = TEXT_COLORS,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TextSection.OUTLINE_COLOR -> BackgroundColorPicker(
+                selected = selected?.outlineColor ?: Color.Black,
+                onSelected = onOutlineColorChange,
+                options = TEXT_COLORS,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TextSection.SIZE -> ActiveSlider(
+                value = selected?.fontSize ?: 72f,
+                range = 24f..180f,
+                onValueChange = onFontSizeChange,
+                resetKey = section,
+                suffix = " px",
+                showValue = true,
+                enabled = selected != null,
+            )
+            TextSection.OUTLINE -> ActiveSlider(
+                value = selected?.outlineWidth ?: 0f,
+                range = 0f..24f,
+                onValueChange = onOutlineWidthChange,
+                resetKey = section,
+                suffix = " px",
+                showValue = true,
+                enabled = selected != null,
+            )
+            TextSection.SHADOW -> ActiveSlider(
+                value = selected?.shadowRadius ?: 0f,
+                range = 0f..32f,
+                onValueChange = onShadowRadiusChange,
+                resetKey = section,
+                showValue = true,
+                enabled = selected != null,
+            )
+        }
 
-        FontDropdown(
-            selected = selected?.font ?: TextStickerFont.INTER,
-            enabled = selected != null,
-            onSelected = onFontChange,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        ToolSectionLabel("Màu chữ")
-        BackgroundColorPicker(
-            selected = selected?.textColor ?: Color.White,
-            onSelected = onTextColorChange,
-            options = TEXT_COLORS,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        ToolSectionLabel("Màu viền")
-        BackgroundColorPicker(
-            selected = selected?.outlineColor ?: Color.Black,
-            onSelected = onOutlineColorChange,
-            options = TEXT_COLORS,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        ToolSliderRow("Cỡ chữ", selected?.fontSize ?: 72f, 24f..180f, " px", onFontSizeChange)
-        ToolSliderRow("Viền", selected?.outlineWidth ?: 0f, 0f..24f, " px", onOutlineWidthChange)
-        ToolSliderRow("Bóng", selected?.shadowRadius ?: 0f, 0f..32f, "", onShadowRadiusChange)
+        ToolItemStrip {
+            TextSection.entries.forEach { item ->
+                ToolItemCard(
+                    label = item.label,
+                    icon = item.icon,
+                    selected = section == item,
+                    onClick = { section = item },
+                )
+            }
+        }
     }
 }
 

@@ -37,13 +37,15 @@ fun ToolTabs(
     active: EditorTool,
     onSelect: (EditorTool) -> Unit,
     modifier: Modifier = Modifier,
-    // Tab "Nền" chỉ có nghĩa khi ảnh đã tách nền; với ảnh thường thì ẩn đi.
+    // Tab "Nền" và "Cọ" chỉ có nghĩa khi ảnh đã tách nền; ảnh thường thì ẩn đi.
     showBackground: Boolean = true,
 ) {
     val tabs = if (showBackground) {
         TOOL_TABS
     } else {
-        TOOL_TABS.filter { it.tool != EditorTool.BACKGROUND }
+        TOOL_TABS.filter {
+            it.tool != EditorTool.BACKGROUND && it.tool != EditorTool.ERASE
+        }
     }
     NavigationBar(
         modifier = modifier,
