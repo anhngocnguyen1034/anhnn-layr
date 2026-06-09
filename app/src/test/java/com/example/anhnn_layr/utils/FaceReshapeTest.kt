@@ -88,4 +88,57 @@ class FaceReshapeTest {
         assertEquals(100f, x, 1e-3f)
         assertEquals(100f, y, 1e-3f)
     }
+
+    // --- Bóp thon mặt (computeFaceSlimVerts) ---
+
+    // Trục giữa dọc tại x=100 (mũi 100,40 → cằm 100,180); 1 anchor má TRÁI tại (60,120) r=60.
+    private fun leftCheek() = FaceLandmarks(
+        eyes = emptyList(),
+        cheeks = listOf(EyeAnchor(cx = 60f, cy = 120f, radius = 60f)),
+        faceAxis = FaceAxis(topX = 100f, topY = 40f, botX = 100f, botY = 180f),
+    )
+
+    @Test
+    fun `slim no-op khi strength 0 hoac thieu du lieu`() {
+        assertNull(computeFaceSlimVerts(W, H, leftCheek(), 0f))
+        assertNull(computeFaceSlimVerts(W, H, null, 1f))
+        assertNull(computeFaceSlimVerts(W, H, FaceLandmarks(emptyList()), 1f)) // không má/trục
+    }
+
+    @Test
+    fun `slim kich thuoc mang verts dung`() {
+        val verts = computeFaceSlimVerts(W, H, leftCheek(), 1f)
+        assertNotNull(verts)
+        assertEquals(cols * cols * 2, verts!!.size)
+    }
+
+    @Test
+    fun `slim dinh vien ma trai bi keo VAO trong (sang phai)`() {
+        val verts = computeFaceSlimVerts(W, H, leftCheek(), 1f)!!
+        // (60,120) = col12,row24, ngay anchor → bị kéo về trục x=100 nên x tăng.
+        val (x, y) = vert(verts, 12, 24)
+        assertTrue("má trái phải dịch sang phải (vào trục)", x > 60f)
+        assertEquals("chỉ kéo ngang, giữ y", 120f, y, 1e-3f)
+        assertTrue("không vượt qua trục giữa", x < 100f)
+    }
+
+    @Test
+    fun `slim gan truc giua bi keo it hon nhieu so voi vien`() {
+        val verts = computeFaceSlimVerts(W, H, leftCheek(), 1f)!!
+        val (xEdge, _) = vert(verts, 12, 24)  // (60,120) sát viền
+        val (xMid, _) = vert(verts, 18, 24)   // (90,120) gần trục giữa
+        val moveEdge = xEdge - 60f
+        val moveMid = xMid - 90f
+        assertTrue("viền dịch dương", moveEdge > 0f)
+        assertTrue("gần trục dịch ít hơn nhiều (bảo vệ miệng/mũi)", moveMid < moveEdge * 0.5f)
+    }
+
+    @Test
+    fun `slim dinh nen o xa khong dich`() {
+        val verts = computeFaceSlimVerts(W, H, leftCheek(), 1f)!!
+        // (0,0) ngoài hộp bao ảnh hưởng (anchor 60,120 r=60 → y>=60) → giữ nguyên.
+        val (x, y) = vert(verts, 0, 0)
+        assertEquals(0f, x, 1e-3f)
+        assertEquals(0f, y, 1e-3f)
+    }
 }

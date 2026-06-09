@@ -19,13 +19,34 @@ data class EyeAnchor(val cx: Float, val cy: Float, val radius: Float)
 data class FacePoint(val x: Float, val y: Float)
 
 /**
+ * Trục dọc giữa khuôn mặt: từ ([topX],[topY]) (sống mũi) xuống ([botX],[botY]) (cằm).
+ * Dùng làm tâm hút khi bóp thon mặt (slim/V-line). Float thuần để test trên JVM.
+ */
+data class FaceAxis(val topX: Float, val topY: Float, val botX: Float, val botY: Float)
+
+/**
  * Điểm mỏ neo trên khuôn mặt dùng cho các phép chỉnh mặt (warp/makeup).
  * [lipOutline] là đa giác viền NGOÀI của môi (rỗng nếu không dò được).
+ * [cheeks] là các mỏ neo viền má/hàm hai bên (mỗi cái mang bán kính ảnh hưởng), [faceAxis]
+ * là trục giữa — cả hai phục vụ bóp thon mặt.
  */
 data class FaceLandmarks(
     val eyes: List<EyeAnchor>,
     val lipOutline: List<FacePoint> = emptyList(),
+    val cheeks: List<EyeAnchor> = emptyList(),
+    val faceAxis: FaceAxis? = null,
+    // 468 điểm gốc cho các xử lý cần mặt nạ chi tiết (vd mịn da). Rỗng khi không dò được.
+    val allPoints: List<FaceMeshPoint> = emptyList(),
 )
+
+// ID viền má/hàm theo chuẩn Canonical Face Mesh (lấy từ FACE_OVAL, nửa dưới khuôn mặt).
+private val LEFT_CHEEK_IDS = intArrayOf(234, 93, 132, 58, 172, 136, 150)
+private val RIGHT_CHEEK_IDS = intArrayOf(454, 323, 361, 288, 397, 365, 379)
+// Trục giữa: sống mũi (168) → cằm (152).
+private const val NOSE_BRIDGE_ID = 168
+private const val CHIN_ID = 152
+// Bán kính ảnh hưởng mỗi anchor má = bề ngang mặt * hệ số (đủ chồng lấn cho warp mượt).
+private const val CHEEK_RADIUS_FRAC = 0.20f
 
 /**
  * Dò khuôn mặt bằng ML Kit **Face Mesh** (468 điểm 3D) và trả về các điểm mỏ neo cần
@@ -61,8 +82,33 @@ suspend fun detectFaceLandmarks(bitmap: Bitmap): FaceLandmarks? {
         val lipOutline = if (upperTop.isNotEmpty() && lowerBottom.isNotEmpty()) {
             (upperTop + lowerBottom.reversed()).map { FacePoint(it.position.x, it.position.y) }
         } else emptyList()
-        if (eyes.isEmpty() && lipOutline.isEmpty()) return null
-        return FaceLandmarks(eyes = eyes, lipOutline = lipOutline)
+        // Má/hàm + trục giữa cho bóp thon mặt — đọc thẳng từ 468 điểm (allPoints[id]).
+        val all = mesh.allPoints
+        val maxCheekId = maxOf(LEFT_CHEEK_IDS.max(), RIGHT_CHEEK_IDS.max(), CHIN_ID, NOSE_BRIDGE_ID)
+        val faceWidth = mesh.boundingBox.width().toFloat()
+        val cheeks: List<EyeAnchor>
+        val faceAxis: FaceAxis?
+        if (all.size > maxCheekId && faceWidth > 0f) {
+            val r = faceWidth * CHEEK_RADIUS_FRAC
+            cheeks = (LEFT_CHEEK_IDS + RIGHT_CHEEK_IDS).map { id ->
+                val p = all[id].position
+                EyeAnchor(cx = p.x, cy = p.y, radius = r)
+            }
+            val top = all[NOSE_BRIDGE_ID].position
+            val bot = all[CHIN_ID].position
+            faceAxis = FaceAxis(top.x, top.y, bot.x, bot.y)
+        } else {
+            cheeks = emptyList()
+            faceAxis = null
+        }
+        if (eyes.isEmpty() && lipOutline.isEmpty() && cheeks.isEmpty()) return null
+        return FaceLandmarks(
+            eyes = eyes,
+            lipOutline = lipOutline,
+            cheeks = cheeks,
+            faceAxis = faceAxis,
+            allPoints = all,
+        )
     } finally {
         detector.close()
     }
