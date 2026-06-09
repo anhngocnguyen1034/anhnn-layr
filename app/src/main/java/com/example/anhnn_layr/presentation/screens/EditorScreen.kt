@@ -78,6 +78,7 @@ import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
 import com.example.anhnn_layr.presentation.components.tools.CropToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EffectsToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EraseToolPanel
+import com.example.anhnn_layr.presentation.components.tools.FaceToolPanel
 import com.example.anhnn_layr.presentation.components.tools.TextToolPanel
 import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
@@ -111,6 +112,8 @@ fun EditorScreen(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onEyeEnlargeChange: (Float) -> Unit,
+    onLipColorChange: (Float) -> Unit,
     onSelectCropAspect: (Float?) -> Unit,
     onApplyCrop: () -> Unit,
     onResetCrop: () -> Unit,
@@ -225,6 +228,8 @@ fun EditorScreen(
                 onBrightnessChange = onBrightnessChange,
                 onContrastChange = onContrastChange,
                 onSaturationChange = onSaturationChange,
+                onEyeEnlargeChange = onEyeEnlargeChange,
+                onLipColorChange = onLipColorChange,
                 onBrushModeChange = onBrushModeChange,
                 onBrushColorChange = onBrushColorChange,
                 onBrushSizeChange = onBrushSizeChange,
@@ -564,6 +569,8 @@ private fun FloatingToolPanel(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onEyeEnlargeChange: (Float) -> Unit,
+    onLipColorChange: (Float) -> Unit,
     onBrushModeChange: (BrushMode) -> Unit,
     onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
@@ -623,6 +630,13 @@ private fun FloatingToolPanel(
                         onContrastChange = onContrastChange,
                         onSaturationChange = onSaturationChange,
                     )
+                    EditorTool.FACE -> FaceToolPanel(
+                        eyeEnlarge = editor.eyeEnlarge,
+                        lipColor = editor.lipColor,
+                        faceDetected = editor.faceDetected,
+                        onEyeEnlargeChange = onEyeEnlargeChange,
+                        onLipColorChange = onLipColorChange,
+                    )
                     EditorTool.ERASE -> EraseToolPanel(
                         brushMode = editor.brushMode,
                         brushColor = editor.brushColor,
@@ -677,6 +691,7 @@ private val EditorTool.label: String
     get() = when (this) {
         EditorTool.BACKGROUND -> "Nền"
         EditorTool.ERASE -> "Cọ"
+        EditorTool.FACE -> "Chỉnh mặt"
         EditorTool.EFFECTS -> "Hiệu ứng"
         EditorTool.CROP -> "Cắt ảnh"
         EditorTool.TEXT -> "Chữ"
