@@ -13,28 +13,42 @@ import kotlin.math.roundToInt
 private enum class FaceFeature(val label: String) {
     EYE("Mắt to"),
     LIP("Môi hồng"),
+    SLIM("Thon mặt"),
+    SMOOTH("Mịn da"),
 }
 
 /**
  * Bảng "Chỉnh mặt": một thanh trượt cường độ cho mục đang chọn + dải thẻ mục
- * (giống [EffectsToolPanel]). Đợt này có "Mắt to" và "Môi hồng"; "Cằm thon" để sẵn
- * dạng khoá cho lần mở rộng sau.
+ * (giống [EffectsToolPanel]). Có "Mắt to", "Môi hồng", "Thon mặt" (V-line), "Mịn da".
  */
 @Composable
 fun FaceToolPanel(
     eyeEnlarge: Float,
     lipColor: Float,
+    faceSlim: Float,
+    skinSmooth: Float,
     faceDetected: Boolean?,
     onEyeEnlargeChange: (Float) -> Unit,
     onLipColorChange: (Float) -> Unit,
+    onFaceSlimChange: (Float) -> Unit,
+    onSkinSmoothChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val noFace = faceDetected == false
     var selected by remember { mutableStateOf(FaceFeature.EYE) }
 
-    val activeValue = if (selected == FaceFeature.EYE) eyeEnlarge else lipColor
-    val onActiveChange: (Float) -> Unit =
-        if (selected == FaceFeature.EYE) onEyeEnlargeChange else onLipColorChange
+    val activeValue = when (selected) {
+        FaceFeature.EYE -> eyeEnlarge
+        FaceFeature.LIP -> lipColor
+        FaceFeature.SLIM -> faceSlim
+        FaceFeature.SMOOTH -> skinSmooth
+    }
+    val onActiveChange: (Float) -> Unit = when (selected) {
+        FaceFeature.EYE -> onEyeEnlargeChange
+        FaceFeature.LIP -> onLipColorChange
+        FaceFeature.SLIM -> onFaceSlimChange
+        FaceFeature.SMOOTH -> onSkinSmoothChange
+    }
 
     ToolPanelColumn(title = "Chỉnh mặt", modifier = modifier) {
         ActiveSlider(
@@ -68,11 +82,18 @@ fun FaceToolPanel(
                 enabled = !noFace,
             )
             ToolItemCard(
-                label = "Cằm thon",
-                value = "0",
-                selected = false,
-                onClick = {},
-                enabled = false,
+                label = FaceFeature.SLIM.label,
+                value = formatFaceValue(faceSlim),
+                selected = selected == FaceFeature.SLIM,
+                onClick = { selected = FaceFeature.SLIM },
+                enabled = !noFace,
+            )
+            ToolItemCard(
+                label = FaceFeature.SMOOTH.label,
+                value = formatFaceValue(skinSmooth),
+                selected = selected == FaceFeature.SMOOTH,
+                onClick = { selected = FaceFeature.SMOOTH },
+                enabled = !noFace,
             )
         }
     }

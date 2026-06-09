@@ -23,6 +23,8 @@ import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.applyEyeEnlarge
+import com.example.anhnn_layr.utils.applyFaceSlim
+import com.example.anhnn_layr.utils.applySkinSmoothing
 import com.example.anhnn_layr.utils.applyFeather
 import com.example.anhnn_layr.utils.applyLipColor
 import com.example.anhnn_layr.utils.CropFrame
@@ -94,6 +96,10 @@ data class EditorState(
     val eyeEnlarge: Float = 0f,
     // Cường độ tô màu môi hồng (0..1).
     val lipColor: Float = 0f,
+    // Cường độ bóp thon gọn mặt / V-line (0..1).
+    val faceSlim: Float = 0f,
+    // Cường độ làm mịn da (0..1).
+    val skinSmooth: Float = 0f,
     val faceDetected: Boolean? = null,
     val textStickers: List<TextSticker> = emptyList(),
     val selectedTextStickerId: String? = null,
@@ -307,6 +313,16 @@ class RembgViewModel @Inject constructor(
 
     fun setLipColor(value: Float) {
         _editor.update { it.copy(lipColor = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setFaceSlim(value: Float) {
+        _editor.update { it.copy(faceSlim = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setSkinSmooth(value: Float) {
+        _editor.update { it.copy(skinSmooth = value) }
         recomposeSubject(rebuildWorking = false)
     }
     fun setBrushMode(mode: BrushMode) = _editor.update { it.copy(brushMode = mode) }
@@ -626,9 +642,14 @@ class RembgViewModel @Inject constructor(
             } else current.workingBitmap
             // Warp chỉnh mặt nướng vào bitmap, LUÔN tính từ working sạch (không méo
             // tích lũy), TRƯỚC feather. Trả về working nếu cường độ 0 / chưa có mặt.
-            val faced = applyEyeEnlarge(working, faceLandmarks, ed.eyeEnlarge)
-            // Tô môi sau warp (mắt warp cục bộ không làm môi dịch nên toạ độ vẫn đúng).
-            val painted = applyLipColor(faced, faceLandmarks?.lipOutline, LIP_PINK, ed.lipColor)
+            // Mịn da TRƯỚC khi warp: mặt nạ dùng toạ độ landmark khớp với working chưa
+            // biến dạng (eye/slim warp sau đó chỉ biến hình lại lớp da đã mịn).
+            val smoothed = applySkinSmoothing(working, faceLandmarks?.allPoints.orEmpty(), ed.skinSmooth)
+            val faced = applyEyeEnlarge(smoothed, faceLandmarks, ed.eyeEnlarge)
+            // Bóp thon mặt: hút viền má vào trục giữa (centerGuard giữ vùng miệng nguyên).
+            val slimmed = applyFaceSlim(faced, faceLandmarks, ed.faceSlim)
+            // Tô môi sau warp (mắt + má warp cục bộ không làm môi dịch nên toạ độ vẫn đúng).
+            val painted = applyLipColor(slimmed, faceLandmarks?.lipOutline, LIP_PINK, ed.lipColor)
             val display = applyFeather(painted, ed.featherRadius)
             working to display
         }
