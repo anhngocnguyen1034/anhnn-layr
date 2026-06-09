@@ -590,25 +590,26 @@ private fun FloatingToolPanel(
     onDeleteText: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AnimatedContent(
-        targetState = editor.activeTool,
-        transitionSpec = {
-            (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 4 }) togetherWith
-                (fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 4 })
-        },
-        label = "tool-panel",
-        modifier = modifier.fillMaxWidth(),
-    ) { tool ->
-        Surface(
-            // Vùng công cụ RIÊNG dưới ảnh: nền đặc, mép vuông (không bo góc) + đổ
-            // bóng lên trên để ngăn cách rõ với ảnh, không đè/ảnh hưởng đến ảnh.
-            modifier = Modifier
-                .fillMaxWidth()
-                .blockPointerThrough(),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
-            shadowElevation = 12.dp,
-        ) {
+    Surface(
+        // Vùng công cụ RIÊNG dưới ảnh: nền đặc, mép vuông (không bo góc) + đổ bóng lên
+        // trên để ngăn cách rõ với ảnh. Đặt NGOÀI AnimatedContent để nền surface luôn
+        // phủ kín khi panel đổi/đổi cỡ → không lộ nền trắng phía sau gây nháy lúc đổi tab.
+        modifier = modifier
+            .fillMaxWidth()
+            .blockPointerThrough(),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        shadowElevation = 12.dp,
+    ) {
+        AnimatedContent(
+            targetState = editor.activeTool,
+            transitionSpec = {
+                (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 4 }) togetherWith
+                    (fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 4 })
+            },
+            label = "tool-panel",
+            modifier = Modifier.fillMaxWidth(),
+        ) { tool ->
             Column(modifier = Modifier.fillMaxWidth()) {
                 when (tool) {
                     EditorTool.BACKGROUND -> BackgroundToolPanel(
