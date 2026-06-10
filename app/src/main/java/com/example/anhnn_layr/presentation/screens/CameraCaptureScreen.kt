@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -246,6 +247,7 @@ private fun LiveCamera(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     var lensFacing by rememberSaveable { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
     val previewView = remember {
@@ -266,6 +268,31 @@ private fun LiveCamera(
     var flashMode by rememberSaveable { mutableStateOf(ImageCapture.FLASH_MODE_OFF) }
     // Ống kính hiện tại có đèn flash không (camera trước thường không) → ẩn nút.
     val hasFlashUnit = camera?.cameraInfo?.hasFlashUnit() == true
+    val isFrontLens = lensFacing == CameraSelector.LENS_FACING_FRONT
+    // "Flash màn hình" cho selfie: camera trước không có đèn nên khi bật, lúc chụp
+    // toàn màn hình lóe trắng + độ sáng đẩy tối đa để rọi sáng khuôn mặt.
+    var screenFlashOn by rememberSaveable { mutableStateOf(false) }
+    // true trong lúc đang lóe trắng chờ chụp.
+    var screenFlashActive by remember { mutableStateOf(false) }
+
+    // Đẩy/trả độ sáng màn hình theo trạng thái lóe. onDispose trả về mặc định phòng
+    // trường hợp rời màn giữa chừng (chụp xong là rời composition ngay).
+    val activity = context as? Activity
+    LaunchedEffect(screenFlashActive) {
+        val window = activity?.window ?: return@LaunchedEffect
+        window.attributes = window.attributes.apply {
+            screenBrightness = if (screenFlashActive) 1f
+            else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            val window = activity?.window ?: return@onDispose
+            window.attributes = window.attributes.apply {
+                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            }
+        }
+    }
     // Điểm vừa chạm lấy nét (toạ độ pixel trên preview) — null khi không hiện vòng nét.
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
     // Ảnh chụp gần nhất trong Pictures/AnhnnLayr — thumbnail cạnh nút chụp, chạm mở
@@ -307,7 +334,7 @@ private fun LiveCamera(
         imageCapture.flashMode = flashMode
     }
 
-    val takePhoto = takePhoto@{
+    val capture = {
         val dir = File(context.cacheDir, "captures").apply { mkdirs() }
         val file = File(dir, "camera_${System.currentTimeMillis()}.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file).build()
@@ -316,10 +343,12 @@ private fun LiveCamera(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    screenFlashActive = false
                     onCaptured(file)
                 }
 
                 override fun onError(exc: ImageCaptureException) {
+                    screenFlashActive = false
                     Toast.makeText(
                         context,
                         "Không chụp được ảnh: ${exc.message}",
@@ -328,6 +357,19 @@ private fun LiveCamera(
                 }
             },
         )
+    }
+    val takePhoto = takePhoto@{
+        if (isFrontLens && screenFlashOn) {
+            // Lóe trắng + sáng tối đa, chờ một nhịp cho màn hình rọi lên mặt và AE
+            // thích ứng rồi mới chụp; tắt lóe trong callback chụp xong/ lỗi.
+            scope.launch {
+                screenFlashActive = true
+                delay(400)
+                capture()
+            }
+        } else {
+            capture()
+        }
         Unit
     }
 
@@ -379,7 +421,8 @@ private fun LiveCamera(
                 .padding(16.dp),
         )
 
-        // Nút flash: bấm xoay vòng Tắt → Tự động → Bật. Chỉ hiện khi ống kính có đèn.
+        // Nút flash: ống kính có đèn → xoay vòng Tắt/Tự động/Bật; camera trước không
+        // đèn → công tắc "flash màn hình" Tắt/Bật.
         if (hasFlashUnit) {
             CircleIconButton(
                 icon = when (flashMode) {
@@ -399,6 +442,16 @@ private fun LiveCamera(
                         else -> ImageCapture.FLASH_MODE_OFF
                     }
                 },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(16.dp),
+            )
+        } else if (isFrontLens) {
+            CircleIconButton(
+                icon = if (screenFlashOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
+                contentDescription = if (screenFlashOn) "Flash màn hình: bật" else "Flash màn hình: tắt",
+                onClick = { screenFlashOn = !screenFlashOn },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.statusBars)
@@ -459,6 +512,16 @@ private fun LiveCamera(
                     },
                 )
             }
+        }
+
+        // Lớp lóe trắng "flash màn hình" — vẽ TRÊN CÙNG, phủ cả nút bấm trong lúc
+        // chờ chụp để ánh sáng màn hình rọi tối đa lên khuôn mặt.
+        if (screenFlashActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White),
+            )
         }
     }
 }
