@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,10 +29,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.Compare
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -368,6 +371,9 @@ private fun EditorPreview(
     modifier: Modifier = Modifier,
 ) {
     val imageRatio = displayBitmap.width.toFloat() / displayBitmap.height.toFloat()
+    // Đè giữ nút so sánh → xem ảnh gốc; thả tay → quay lại ảnh đã chỉnh. State thuần
+    // hiển thị (như scale/offset) nên giữ cục bộ, không cần hoist lên ViewModel.
+    var showOriginal by remember { mutableStateOf(false) }
 
     BoxWithConstraints(
         modifier = modifier,
@@ -385,6 +391,7 @@ private fun EditorPreview(
             effectedBitmap = effectedBitmap,
             originalBitmap = originalBitmap,
             editor = editor,
+            showOriginal = showOriginal,
             scale = scale,
             offset = offset,
             onTransform = onTransform,
@@ -396,6 +403,72 @@ private fun EditorPreview(
             onCropFrameChange = onCropFrameChange,
             modifier = previewSizeModifier,
         )
+
+        // Nhãn báo đang xem ảnh gốc.
+        if (showOriginal) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp),
+                shape = RoundedCornerShape(50),
+                color = Color(0x99000000),
+                contentColor = Color.White,
+            ) {
+                Text(
+                    text = "Ảnh gốc",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+
+        CompareHoldButton(
+            onPressedChange = { showOriginal = it },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(14.dp),
+        )
+    }
+}
+
+/**
+ * Nút tròn nổi "so sánh trước/sau": ĐÈ GIỮ để xem ảnh gốc, thả tay quay về ảnh đã
+ * chỉnh (chuẩn thao tác của các app chỉnh sửa). Dùng [detectTapGestures.onPress] +
+ * `tryAwaitRelease` thay vì clickable để bắt được trạng thái giữ.
+ */
+@Composable
+private fun CompareHoldButton(
+    onPressedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .size(44.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        onPressedChange(true)
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            // finally: kể cả khi gesture bị huỷ cũng trả về ảnh đã chỉnh.
+                            onPressedChange(false)
+                        }
+                    },
+                )
+            }
+            .semantics { contentDescription = "Đè giữ để xem ảnh gốc" },
+        shape = CircleShape,
+        color = Color(0x99000000),
+        contentColor = Color.White,
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Outlined.Compare,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
 }
 
@@ -405,6 +478,7 @@ private fun PreviewCanvas(
     effectedBitmap: Bitmap,
     originalBitmap: Bitmap,
     editor: EditorState,
+    showOriginal: Boolean,
     scale: Float,
     offset: Offset,
     onTransform: (Float, Offset) -> Unit,
@@ -521,6 +595,26 @@ private fun PreviewCanvas(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
+        // Lớp "trước khi chỉnh" phủ TRÊN CÙNG khi đè nút so sánh: ảnh gốc nguyên bản
+        // (không filter màu, không sticker, không nền), cùng transform zoom/pan để hai
+        // ảnh thẳng hàng tuyệt đối. Image không có pointerInput nên không nuốt cử chỉ.
+        if (showOriginal) {
+            val originalImage = remember(originalBitmap) { originalBitmap.asImageBitmap() }
+            Image(
+                bitmap = originalImage,
+                contentDescription = "Ảnh gốc",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y,
+                        transformOrigin = TransformOrigin(0f, 0f),
+                    ),
+                contentScale = ContentScale.Fit,
+            )
         }
     }
 }
