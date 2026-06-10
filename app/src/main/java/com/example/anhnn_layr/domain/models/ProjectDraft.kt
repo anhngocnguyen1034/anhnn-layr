@@ -37,6 +37,15 @@ data class EditorStateSnapshot(
     val selectedTextStickerId: String? = null,
     // null = bản nháp cũ (trước khi có luồng "Chỉnh ảnh") → coi như đã xoá nền.
     val isBackgroundRemoved: Boolean? = null,
+    // Chỉnh mặt — null = bản nháp cũ (trước khi lưu nhóm này) → mặc định 0 / màu mặc định.
+    val eyeEnlarge: Float? = null,
+    val lipColor: Float? = null,
+    val lipShadeArgb: Long? = null,
+    val teethWhiten: Float? = null,
+    val blush: Float? = null,
+    val faceSlim: Float? = null,
+    val skinSmooth: Float? = null,
+    val skinBrighten: Float? = null,
 )
 
 data class TextStickerSnapshot(

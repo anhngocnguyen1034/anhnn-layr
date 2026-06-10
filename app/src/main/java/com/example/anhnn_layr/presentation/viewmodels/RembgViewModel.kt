@@ -307,6 +307,9 @@ class RembgViewModel @Inject constructor(
             )
             _editor.value = snapshot.editorState.toEditorState(paths = snapshot.touchPaths)
             subjectTrigger.trySend(true)
+            // Bản nháp có chỉnh mặt: dò lại landmarks ngay (không đợi mở tab "Mặt") —
+            // dò xong ensureFaceDetection sẽ tự recompose để render lại hiệu ứng.
+            if (_editor.value.hasFaceAdjustments) ensureFaceDetection()
         }
     }
 
@@ -340,6 +343,10 @@ class RembgViewModel @Inject constructor(
             }
             faceLandmarks = found
             _editor.update { it.copy(faceDetected = found != null) }
+            // Đang có hiệu ứng mặt chờ landmarks (vd mở bản nháp) → render lại ngay.
+            if (found != null && _editor.value.hasFaceAdjustments) {
+                recomposeSubject(rebuildWorking = false)
+            }
         }
     }
 
@@ -800,6 +807,14 @@ private fun EditorState.toSnapshot(): EditorStateSnapshot = EditorStateSnapshot(
     textStickers = textStickers.map { it.toSnapshot() },
     selectedTextStickerId = selectedTextStickerId,
     isBackgroundRemoved = isBackgroundRemoved,
+    eyeEnlarge = eyeEnlarge,
+    lipColor = lipColor,
+    lipShadeArgb = lipShade.toArgb().toLong() and 0xFFFFFFFFL,
+    teethWhiten = teethWhiten,
+    blush = blush,
+    faceSlim = faceSlim,
+    skinSmooth = skinSmooth,
+    skinBrighten = skinBrighten,
 )
 
 private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorState {
@@ -827,6 +842,14 @@ private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorSta
     textStickers = textStickers.orEmpty().map { it.toTextSticker() },
     selectedTextStickerId = selectedTextStickerId,
     isBackgroundRemoved = bgRemoved,
+    eyeEnlarge = eyeEnlarge ?: 0f,
+    lipColor = lipColor ?: 0f,
+    lipShade = lipShadeArgb?.let { Color(it.toInt()) } ?: Color(LIP_PINK),
+    teethWhiten = teethWhiten ?: 0f,
+    blush = blush ?: 0f,
+    faceSlim = faceSlim ?: 0f,
+    skinSmooth = skinSmooth ?: 0f,
+    skinBrighten = skinBrighten ?: 0f,
     )
 }
 
