@@ -37,6 +37,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Cameraswitch
+import androidx.compose.material.icons.outlined.FlashAuto
+import androidx.compose.material.icons.outlined.FlashOff
+import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Remove
@@ -243,6 +246,10 @@ private fun LiveCamera(
     // Vị trí thanh kéo (0f..1f): setLinearZoom map tuyến tính theo góc nhìn, mượt
     // hơn so với set thẳng zoomRatio. Giữ lại khi xoay máy / đổi ống kính.
     var linearZoom by rememberSaveable { mutableStateOf(0f) }
+    // Chế độ flash khi chụp (OFF/AUTO/ON) — giữ lại khi xoay máy / đổi ống kính.
+    var flashMode by rememberSaveable { mutableStateOf(ImageCapture.FLASH_MODE_OFF) }
+    // Ống kính hiện tại có đèn flash không (camera trước thường không) → ẩn nút.
+    val hasFlashUnit = camera?.cameraInfo?.hasFlashUnit() == true
 
     DisposableEffect(lensFacing) {
         val future = ProcessCameraProvider.getInstance(context)
@@ -266,6 +273,11 @@ private fun LiveCamera(
     // Áp mức zoom lên camera mỗi khi kéo thanh hoặc vừa bind camera mới.
     LaunchedEffect(camera, linearZoom) {
         camera?.cameraControl?.setLinearZoom(linearZoom)
+    }
+
+    // Áp chế độ flash lên use case chụp — có hiệu lực ngay lần takePicture kế tiếp.
+    LaunchedEffect(flashMode) {
+        imageCapture.flashMode = flashMode
     }
 
     val takePhoto = takePhoto@{
@@ -315,6 +327,33 @@ private fun LiveCamera(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(16.dp),
         )
+
+        // Nút flash: bấm xoay vòng Tắt → Tự động → Bật. Chỉ hiện khi ống kính có đèn.
+        if (hasFlashUnit) {
+            CircleIconButton(
+                icon = when (flashMode) {
+                    ImageCapture.FLASH_MODE_ON -> Icons.Outlined.FlashOn
+                    ImageCapture.FLASH_MODE_AUTO -> Icons.Outlined.FlashAuto
+                    else -> Icons.Outlined.FlashOff
+                },
+                contentDescription = when (flashMode) {
+                    ImageCapture.FLASH_MODE_ON -> "Flash: bật"
+                    ImageCapture.FLASH_MODE_AUTO -> "Flash: tự động"
+                    else -> "Flash: tắt"
+                },
+                onClick = {
+                    flashMode = when (flashMode) {
+                        ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                        ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                        else -> ImageCapture.FLASH_MODE_OFF
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(16.dp),
+            )
+        }
 
         Column(
             modifier = Modifier
