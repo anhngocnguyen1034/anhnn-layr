@@ -112,6 +112,10 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
                 showCamera = false
                 showGallery = true // mở thư viện để chọn ảnh vừa chụp
             },
+            onOpenGallery = {
+                showCamera = false
+                showGallery = true // chạm thumbnail ảnh gần nhất -> mở thư viện
+            },
             onBack = { showCamera = false },
         )
         return

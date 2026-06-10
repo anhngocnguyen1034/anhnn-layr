@@ -88,6 +88,8 @@ import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
 import com.example.anhnn_layr.presentation.components.CustomZoomSlider
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleGradient
+import com.example.anhnn_layr.utils.GalleryPhoto
+import com.example.anhnn_layr.utils.queryCapturedPhotos
 import com.example.anhnn_layr.utils.saveCaptureToGallery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -99,11 +101,13 @@ import kotlin.math.roundToInt
 /**
  * Màn chụp ảnh trong app (CameraX). Sau khi chụp sẽ hiện preview để người dùng
  * chọn "Chụp lại" hoặc "Dùng ảnh". Bấm "Dùng ảnh" sẽ lưu ảnh vào thư viện ảnh
- * của máy rồi gọi [onPhotoSaved] (để mở màn Thư viện).
+ * của máy rồi gọi [onPhotoSaved] (để mở màn Thư viện). [onOpenGallery] được gọi
+ * khi chạm vào thumbnail ảnh gần nhất cạnh nút chụp.
  */
 @Composable
 fun CameraCaptureScreen(
     onPhotoSaved: () -> Unit,
+    onOpenGallery: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -229,6 +233,7 @@ fun CameraCaptureScreen(
 
     LiveCamera(
         onCaptured = { capturedFile = it },
+        onOpenGallery = onOpenGallery,
         onBack = onBack,
     )
 }
@@ -236,6 +241,7 @@ fun CameraCaptureScreen(
 @Composable
 private fun LiveCamera(
     onCaptured: (File) -> Unit,
+    onOpenGallery: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -262,6 +268,15 @@ private fun LiveCamera(
     val hasFlashUnit = camera?.cameraInfo?.hasFlashUnit() == true
     // Điểm vừa chạm lấy nét (toạ độ pixel trên preview) — null khi không hiện vòng nét.
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
+    // Ảnh chụp gần nhất trong Pictures/AnhnnLayr — thumbnail cạnh nút chụp, chạm mở
+    // thư viện. LiveCamera rời composition khi sang màn xem ảnh nên quay lại sẽ tự
+    // load lại (ảnh vừa chụp xong hiện ngay).
+    var latestPhoto by remember { mutableStateOf<GalleryPhoto?>(null) }
+    LaunchedEffect(Unit) {
+        latestPhoto = withContext(Dispatchers.IO) {
+            runCatching { queryCapturedPhotos(context).firstOrNull() }.getOrNull()
+        }
+    }
 
     DisposableEffect(lensFacing) {
         val future = ProcessCameraProvider.getInstance(context)
@@ -412,8 +427,23 @@ private fun LiveCamera(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Spacer giữ nút chụp ở chính giữa.
-                Box(modifier = Modifier.size(52.dp))
+                // Thumbnail ảnh gần nhất — chạm mở thư viện. Chưa có ảnh nào thì là
+                // ô trống cùng cỡ để nút chụp vẫn ở chính giữa.
+                val latest = latestPhoto
+                if (latest != null) {
+                    AsyncImage(
+                        model = latest.uri,
+                        contentDescription = "Ảnh gần nhất — mở thư viện",
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.5.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
+                            .clickable(onClick = onOpenGallery),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Box(modifier = Modifier.size(52.dp))
+                }
 
                 ShutterButton(onClick = takePhoto)
 
