@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Crop
+import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.FormatPaint
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.Icon
@@ -27,6 +28,7 @@ private data class ToolTabItem(
 private val TOOL_TABS = listOf(
     ToolTabItem(EditorTool.BACKGROUND, "Nền", Icons.Outlined.FormatPaint),
     ToolTabItem(EditorTool.ERASE, "Cọ", Icons.Outlined.AutoFixHigh),
+    ToolTabItem(EditorTool.FACE, "Mặt", Icons.Outlined.Face),
     ToolTabItem(EditorTool.EFFECTS, "FX", Icons.Outlined.AutoAwesome),
     ToolTabItem(EditorTool.CROP, "Cắt", Icons.Outlined.Crop),
     ToolTabItem(EditorTool.TEXT, "Chữ", Icons.Outlined.TextFields),

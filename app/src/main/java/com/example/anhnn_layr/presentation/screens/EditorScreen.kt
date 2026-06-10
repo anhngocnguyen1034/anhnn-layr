@@ -78,6 +78,7 @@ import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
 import com.example.anhnn_layr.presentation.components.tools.CropToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EffectsToolPanel
 import com.example.anhnn_layr.presentation.components.tools.EraseToolPanel
+import com.example.anhnn_layr.presentation.components.tools.FaceToolPanel
 import com.example.anhnn_layr.presentation.components.tools.TextToolPanel
 import com.example.anhnn_layr.presentation.components.tools.ToolTabs
 import com.example.anhnn_layr.presentation.viewmodels.EditorState
@@ -111,6 +112,10 @@ fun EditorScreen(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onEyeEnlargeChange: (Float) -> Unit,
+    onLipColorChange: (Float) -> Unit,
+    onFaceSlimChange: (Float) -> Unit,
+    onSkinSmoothChange: (Float) -> Unit,
     onSelectCropAspect: (Float?) -> Unit,
     onApplyCrop: () -> Unit,
     onResetCrop: () -> Unit,
@@ -225,6 +230,10 @@ fun EditorScreen(
                 onBrightnessChange = onBrightnessChange,
                 onContrastChange = onContrastChange,
                 onSaturationChange = onSaturationChange,
+                onEyeEnlargeChange = onEyeEnlargeChange,
+                onLipColorChange = onLipColorChange,
+                onFaceSlimChange = onFaceSlimChange,
+                onSkinSmoothChange = onSkinSmoothChange,
                 onBrushModeChange = onBrushModeChange,
                 onBrushColorChange = onBrushColorChange,
                 onBrushSizeChange = onBrushSizeChange,
@@ -564,6 +573,10 @@ private fun FloatingToolPanel(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onEyeEnlargeChange: (Float) -> Unit,
+    onLipColorChange: (Float) -> Unit,
+    onFaceSlimChange: (Float) -> Unit,
+    onSkinSmoothChange: (Float) -> Unit,
     onBrushModeChange: (BrushMode) -> Unit,
     onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
@@ -583,25 +596,26 @@ private fun FloatingToolPanel(
     onDeleteText: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AnimatedContent(
-        targetState = editor.activeTool,
-        transitionSpec = {
-            (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 4 }) togetherWith
-                (fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 4 })
-        },
-        label = "tool-panel",
-        modifier = modifier.fillMaxWidth(),
-    ) { tool ->
-        Surface(
-            // Vùng công cụ RIÊNG dưới ảnh: nền đặc, mép vuông (không bo góc) + đổ
-            // bóng lên trên để ngăn cách rõ với ảnh, không đè/ảnh hưởng đến ảnh.
-            modifier = Modifier
-                .fillMaxWidth()
-                .blockPointerThrough(),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
-            shadowElevation = 12.dp,
-        ) {
+    Surface(
+        // Vùng công cụ RIÊNG dưới ảnh: nền đặc, mép vuông (không bo góc) + đổ bóng lên
+        // trên để ngăn cách rõ với ảnh. Đặt NGOÀI AnimatedContent để nền surface luôn
+        // phủ kín khi panel đổi/đổi cỡ → không lộ nền trắng phía sau gây nháy lúc đổi tab.
+        modifier = modifier
+            .fillMaxWidth()
+            .blockPointerThrough(),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        shadowElevation = 12.dp,
+    ) {
+        AnimatedContent(
+            targetState = editor.activeTool,
+            transitionSpec = {
+                (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 4 }) togetherWith
+                    (fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 4 })
+            },
+            label = "tool-panel",
+            modifier = Modifier.fillMaxWidth(),
+        ) { tool ->
             Column(modifier = Modifier.fillMaxWidth()) {
                 when (tool) {
                     EditorTool.BACKGROUND -> BackgroundToolPanel(
@@ -622,6 +636,17 @@ private fun FloatingToolPanel(
                         onBrightnessChange = onBrightnessChange,
                         onContrastChange = onContrastChange,
                         onSaturationChange = onSaturationChange,
+                    )
+                    EditorTool.FACE -> FaceToolPanel(
+                        eyeEnlarge = editor.eyeEnlarge,
+                        lipColor = editor.lipColor,
+                        faceSlim = editor.faceSlim,
+                        skinSmooth = editor.skinSmooth,
+                        faceDetected = editor.faceDetected,
+                        onEyeEnlargeChange = onEyeEnlargeChange,
+                        onLipColorChange = onLipColorChange,
+                        onFaceSlimChange = onFaceSlimChange,
+                        onSkinSmoothChange = onSkinSmoothChange,
                     )
                     EditorTool.ERASE -> EraseToolPanel(
                         brushMode = editor.brushMode,
@@ -677,6 +702,7 @@ private val EditorTool.label: String
     get() = when (this) {
         EditorTool.BACKGROUND -> "Nền"
         EditorTool.ERASE -> "Cọ"
+        EditorTool.FACE -> "Chỉnh mặt"
         EditorTool.EFFECTS -> "Hiệu ứng"
         EditorTool.CROP -> "Cắt ảnh"
         EditorTool.TEXT -> "Chữ"

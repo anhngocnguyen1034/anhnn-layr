@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -40,6 +42,12 @@ fun CompactSlider(
     val effActive = if (enabled) activeColor else activeColor.copy(alpha = 0.3f)
     val effTrack = if (enabled) trackColor else trackColor.copy(alpha = 0.4f)
 
+    // pointerInput không khởi động lại khi chỉ callback đổi (key (enabled, range) giữ
+    // nguyên) → đọc callback MỚI NHẤT qua rememberUpdatedState, tránh gọi nhầm lambda
+    // cũ khi cùng một slider được tái dùng cho mục khác (vd đổi mục trong tab Mặt/FX).
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -47,20 +55,20 @@ fun CompactSlider(
             .pointerInput(enabled, range) {
                 if (!enabled) return@pointerInput
                 detectHorizontalDragGestures(
-                    onDragEnd = { onValueChangeFinished() },
-                    onDragCancel = { onValueChangeFinished() },
+                    onDragEnd = { currentOnValueChangeFinished() },
+                    onDragCancel = { currentOnValueChangeFinished() },
                 ) { change, _ ->
                     change.consume()
                     val f = (change.position.x / size.width).coerceIn(0f, 1f)
-                    onValueChange(range.start + f * span)
+                    currentOnValueChange(range.start + f * span)
                 }
             }
             .pointerInput(enabled, range) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { offset ->
                     val f = (offset.x / size.width).coerceIn(0f, 1f)
-                    onValueChange(range.start + f * span)
-                    onValueChangeFinished()
+                    currentOnValueChange(range.start + f * span)
+                    currentOnValueChangeFinished()
                 }
             },
     ) {

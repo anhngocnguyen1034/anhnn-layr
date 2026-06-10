@@ -22,8 +22,15 @@ import com.example.anhnn_layr.utils.GalleryPhoto
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.TextStickerFont
+import com.example.anhnn_layr.utils.applyEyeEnlarge
+import com.example.anhnn_layr.utils.applyFaceSlim
+import com.example.anhnn_layr.utils.applySkinSmoothing
 import com.example.anhnn_layr.utils.applyFeather
+import com.example.anhnn_layr.utils.applyLipColor
 import com.example.anhnn_layr.utils.CropFrame
+import com.example.anhnn_layr.utils.FaceLandmarks
+import com.example.anhnn_layr.utils.LIP_PINK
+import com.example.anhnn_layr.utils.detectFaceLandmarks
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
 import com.example.anhnn_layr.utils.cropRotated
@@ -62,7 +69,7 @@ sealed interface RembgUiState {
     data class Error(val message: String) : RembgUiState
 }
 
-enum class EditorTool { BACKGROUND, ERASE, EFFECTS, CROP, TEXT }
+enum class EditorTool { BACKGROUND, ERASE, FACE, EFFECTS, CROP, TEXT }
 
 data class EditorState(
     val selectedColor: Color = Color.Transparent,
@@ -84,6 +91,16 @@ data class EditorState(
     val brightness: Float = 0f,
     val contrast: Float = 0f,
     val saturation: Float = 0f,
+    // Chỉnh mặt: cường độ phóng to mắt (0..1). null = chưa dò mặt; true/false = có/không
+    // tìm thấy khuôn mặt (để UI báo trạng thái).
+    val eyeEnlarge: Float = 0f,
+    // Cường độ tô màu môi hồng (0..1).
+    val lipColor: Float = 0f,
+    // Cường độ bóp thon gọn mặt / V-line (0..1).
+    val faceSlim: Float = 0f,
+    // Cường độ làm mịn da (0..1).
+    val skinSmooth: Float = 0f,
+    val faceDetected: Boolean? = null,
     val textStickers: List<TextSticker> = emptyList(),
     val selectedTextStickerId: String? = null,
     // true khi đang gõ sửa nội dung chữ ngay trên ảnh (bàn phím đang mở).
@@ -122,6 +139,9 @@ class RembgViewModel @Inject constructor(
     private var processedBitmap: Bitmap? = null
     private var originalBitmap: Bitmap? = null
     private var currentSourceUri: Uri? = null
+    // Điểm mỏ neo khuôn mặt (dò lười khi mở tab "Mặt"). Toạ độ theo workingBitmap.
+    private var faceLandmarks: FaceLandmarks? = null
+    private var faceDetectJob: kotlinx.coroutines.Job? = null
 
     private val subjectTrigger = Channel<Boolean>(Channel.CONFLATED)
 
@@ -239,6 +259,8 @@ class RembgViewModel @Inject constructor(
             processedBitmap = snapshot.processedBitmap
             originalBitmap = original
             currentSourceUri = snapshot.sourceImageUri
+            faceLandmarks = null
+            faceDetectJob?.cancel()
             val working = snapshot.processedBitmap.copy(Bitmap.Config.ARGB_8888, true)
             _state.value = RembgUiState.Success(
                 originalBitmap = original,
@@ -266,7 +288,42 @@ class RembgViewModel @Inject constructor(
         } else {
             _editor.update { it.copy(activeTool = tool, isEditingText = false) }
             if (tool == EditorTool.CROP) ensureCropFrame()
+            if (tool == EditorTool.FACE) ensureFaceDetection()
         }
+    }
+
+    /** Dò khuôn mặt 1 lần khi mở tab "Mặt" (lười). Toạ độ theo workingBitmap hiện tại. */
+    private fun ensureFaceDetection() {
+        if (faceLandmarks != null || faceDetectJob?.isActive == true) return
+        val current = _state.value as? RembgUiState.Success ?: return
+        val bitmap = current.workingBitmap
+        faceDetectJob = viewModelScope.launch {
+            val found = withContext(Dispatchers.Default) {
+                runCatching { detectFaceLandmarks(bitmap) }.getOrNull()
+            }
+            faceLandmarks = found
+            _editor.update { it.copy(faceDetected = found != null) }
+        }
+    }
+
+    fun setEyeEnlarge(value: Float) {
+        _editor.update { it.copy(eyeEnlarge = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setLipColor(value: Float) {
+        _editor.update { it.copy(lipColor = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setFaceSlim(value: Float) {
+        _editor.update { it.copy(faceSlim = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setSkinSmooth(value: Float) {
+        _editor.update { it.copy(skinSmooth = value) }
+        recomposeSubject(rebuildWorking = false)
     }
     fun setBrushMode(mode: BrushMode) = _editor.update { it.copy(brushMode = mode) }
     fun setBrushColor(color: Color) = _editor.update { it.copy(brushColor = color) }
@@ -510,6 +567,9 @@ class RembgViewModel @Inject constructor(
             if (_state.value !== current) return@launch
             processedBitmap = cropped.processed
             originalBitmap = cropped.original
+            // Toạ độ đã đổi sau khi cắt → bỏ điểm mỏ neo cũ, mở lại tab "Mặt" sẽ dò lại.
+            faceLandmarks = null
+            faceDetectJob?.cancel()
             _editor.update {
                 it.copy(
                     paths = cropped.paths,
@@ -580,7 +640,17 @@ class RembgViewModel @Inject constructor(
             val working = if (rebuildWorking || current == null) {
                 buildWorkingBitmap(proc, orig, ed.paths)
             } else current.workingBitmap
-            val display = applyFeather(working, ed.featherRadius)
+            // Warp chỉnh mặt nướng vào bitmap, LUÔN tính từ working sạch (không méo
+            // tích lũy), TRƯỚC feather. Trả về working nếu cường độ 0 / chưa có mặt.
+            // Mịn da TRƯỚC khi warp: mặt nạ dùng toạ độ landmark khớp với working chưa
+            // biến dạng (eye/slim warp sau đó chỉ biến hình lại lớp da đã mịn).
+            val smoothed = applySkinSmoothing(working, faceLandmarks?.allPoints.orEmpty(), ed.skinSmooth)
+            val faced = applyEyeEnlarge(smoothed, faceLandmarks, ed.eyeEnlarge)
+            // Bóp thon mặt: hút viền má vào trục giữa (centerGuard giữ vùng miệng nguyên).
+            val slimmed = applyFaceSlim(faced, faceLandmarks, ed.faceSlim)
+            // Tô môi sau warp (mắt + má warp cục bộ không làm môi dịch nên toạ độ vẫn đúng).
+            val painted = applyLipColor(slimmed, faceLandmarks?.lipOutline, LIP_PINK, ed.lipColor)
+            val display = applyFeather(painted, ed.featherRadius)
             working to display
         }
         val now = _state.value
@@ -605,6 +675,8 @@ class RembgViewModel @Inject constructor(
         processedBitmap = null
         originalBitmap = null
         currentSourceUri = null
+        faceLandmarks = null
+        faceDetectJob?.cancel()
         _state.value = RembgUiState.Idle
         _editor.value = EditorState()
     }
