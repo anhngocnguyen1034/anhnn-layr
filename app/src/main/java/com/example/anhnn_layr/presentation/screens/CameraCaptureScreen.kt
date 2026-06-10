@@ -11,12 +11,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +32,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -61,13 +66,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
@@ -82,9 +90,11 @@ import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleGradient
 import com.example.anhnn_layr.utils.saveCaptureToGallery
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Màn chụp ảnh trong app (CameraX). Sau khi chụp sẽ hiện preview để người dùng
@@ -250,6 +260,8 @@ private fun LiveCamera(
     var flashMode by rememberSaveable { mutableStateOf(ImageCapture.FLASH_MODE_OFF) }
     // Ống kính hiện tại có đèn flash không (camera trước thường không) → ẩn nút.
     val hasFlashUnit = camera?.cameraInfo?.hasFlashUnit() == true
+    // Điểm vừa chạm lấy nét (toạ độ pixel trên preview) — null khi không hiện vòng nét.
+    var focusPoint by remember { mutableStateOf<Offset?>(null) }
 
     DisposableEffect(lensFacing) {
         val future = ProcessCameraProvider.getInstance(context)
@@ -315,8 +327,32 @@ private fun LiveCamera(
                     detectTransformGestures { _, _, zoom, _ ->
                         linearZoom = (linearZoom + (zoom - 1f) * 0.5f).coerceIn(0f, 1f)
                     }
+                }
+                // Chạm để lấy nét + đo sáng tại điểm chạm. meteringPointFactory tự quy
+                // đổi toạ độ view → toạ độ sensor (đúng cả khi đang zoom/lật ống kính).
+                // FocusMeteringAction mặc định tự huỷ sau ~5s, trả về lấy nét liên tục.
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val cam = camera ?: return@detectTapGestures
+                        val point = previewView.meteringPointFactory
+                            .createPoint(offset.x, offset.y)
+                        runCatching {
+                            cam.cameraControl.startFocusAndMetering(
+                                FocusMeteringAction.Builder(point).build(),
+                            )
+                        }
+                        focusPoint = offset
+                    }
                 },
         )
+
+        // Vòng lấy nét tại điểm chạm: co nhẹ vào rồi tự biến mất.
+        focusPoint?.let { point ->
+            FocusRing(
+                position = point,
+                onFinished = { focusPoint = null },
+            )
+        }
 
         CircleIconButton(
             icon = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -394,6 +430,49 @@ private fun LiveCamera(
                 )
             }
         }
+    }
+}
+
+// Đường kính vòng lấy nét.
+private val FOCUS_RING_SIZE = 64.dp
+
+/**
+ * Vòng lấy nét tại [position] (tâm vòng = điểm chạm): xuất hiện hơi to rồi co về
+ * kích thước thật (180ms), giữ ~600ms rồi gọi [onFinished] để ẩn. Chạm điểm mới khi
+ * vòng cũ còn hiện sẽ restart animation nhờ key theo [position].
+ */
+@Composable
+private fun FocusRing(
+    position: Offset,
+    onFinished: () -> Unit,
+) {
+    val scale = remember(position) { Animatable(1.35f) }
+    LaunchedEffect(position) {
+        scale.animateTo(1f, animationSpec = tween(durationMillis = 180))
+        delay(600)
+        onFinished()
+    }
+    Box(
+        modifier = Modifier
+            .offset {
+                val half = (FOCUS_RING_SIZE.toPx() / 2f).roundToInt()
+                IntOffset(position.x.roundToInt() - half, position.y.roundToInt() - half)
+            }
+            .size(FOCUS_RING_SIZE)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
+            .border(2.dp, Color.White, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Chấm tâm nhỏ cho dễ thấy điểm nét giữa khung hình sáng.
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
     }
 }
 
