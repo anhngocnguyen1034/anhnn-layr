@@ -15,9 +15,6 @@ import kotlinx.coroutines.tasks.await
  */
 data class EyeAnchor(val cx: Float, val cy: Float, val radius: Float)
 
-/** Điểm 2D thuần (không [PointF]) — dùng cho đường viền môi khi tô màu. */
-data class FacePoint(val x: Float, val y: Float)
-
 /**
  * Trục dọc giữa khuôn mặt: từ ([topX],[topY]) (sống mũi) xuống ([botX],[botY]) (cằm).
  * Dùng làm tâm hút khi bóp thon mặt (slim/V-line). Float thuần để test trên JVM.
@@ -26,16 +23,14 @@ data class FaceAxis(val topX: Float, val topY: Float, val botX: Float, val botY:
 
 /**
  * Điểm mỏ neo trên khuôn mặt dùng cho các phép chỉnh mặt (warp/makeup).
- * [lipOutline] là đa giác viền NGOÀI của môi (rỗng nếu không dò được).
  * [cheeks] là các mỏ neo viền má/hàm hai bên (mỗi cái mang bán kính ảnh hưởng), [faceAxis]
  * là trục giữa — cả hai phục vụ bóp thon mặt.
  */
 data class FaceLandmarks(
     val eyes: List<EyeAnchor>,
-    val lipOutline: List<FacePoint> = emptyList(),
     val cheeks: List<EyeAnchor> = emptyList(),
     val faceAxis: FaceAxis? = null,
-    // 468 điểm gốc cho các xử lý cần mặt nạ chi tiết (vd mịn da). Rỗng khi không dò được.
+    // 468 điểm gốc cho các xử lý cần toạ độ chi tiết (mịn da, tô son). Rỗng khi không dò được.
     val allPoints: List<FaceMeshPoint> = emptyList(),
 )
 
@@ -75,13 +70,6 @@ suspend fun detectFaceLandmarks(bitmap: Bitmap): FaceLandmarks? {
             eyeAnchorFrom(mesh.getPoints(FaceMesh.LEFT_EYE)),
             eyeAnchorFrom(mesh.getPoints(FaceMesh.RIGHT_EYE)),
         )
-        // Viền ngoài môi = mép trên môi-trên nối với mép dưới môi-dưới (đảo chiều) để
-        // tạo đa giác kín bao cả miệng.
-        val upperTop = mesh.getPoints(FaceMesh.UPPER_LIP_TOP)
-        val lowerBottom = mesh.getPoints(FaceMesh.LOWER_LIP_BOTTOM)
-        val lipOutline = if (upperTop.isNotEmpty() && lowerBottom.isNotEmpty()) {
-            (upperTop + lowerBottom.reversed()).map { FacePoint(it.position.x, it.position.y) }
-        } else emptyList()
         // Má/hàm + trục giữa cho bóp thon mặt — đọc thẳng từ 468 điểm (allPoints[id]).
         val all = mesh.allPoints
         val maxCheekId = maxOf(LEFT_CHEEK_IDS.max(), RIGHT_CHEEK_IDS.max(), CHIN_ID, NOSE_BRIDGE_ID)
@@ -101,10 +89,9 @@ suspend fun detectFaceLandmarks(bitmap: Bitmap): FaceLandmarks? {
             cheeks = emptyList()
             faceAxis = null
         }
-        if (eyes.isEmpty() && lipOutline.isEmpty() && cheeks.isEmpty()) return null
+        if (eyes.isEmpty() && cheeks.isEmpty() && all.isEmpty()) return null
         return FaceLandmarks(
             eyes = eyes,
-            lipOutline = lipOutline,
             cheeks = cheeks,
             faceAxis = faceAxis,
             allPoints = all,

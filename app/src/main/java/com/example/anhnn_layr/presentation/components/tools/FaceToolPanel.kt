@@ -1,5 +1,17 @@
 package com.example.anhnn_layr.presentation.components.tools
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -7,15 +19,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
+import com.example.anhnn_layr.utils.LIP_PALETTE
 import kotlin.math.roundToInt
 
 private enum class FaceFeature(val label: String) {
     EYE("Mắt to"),
     LIP("Môi hồng"),
+    TEETH("Răng trắng"),
+    BLUSH("Má hồng"),
     SLIM("Thon mặt"),
     SMOOTH("Mịn da"),
+    BRIGHTEN("Sáng da"),
 }
+
+// Bảng màu son (LIP_PALETTE ở utils) đổi sang Compose Color, tính 1 lần.
+private val LIP_SHADES = LIP_PALETTE.map { Color(it) }
 
 /**
  * Bảng "Chỉnh mặt": một thanh trượt cường độ cho mục đang chọn + dải thẻ mục
@@ -25,13 +49,23 @@ private enum class FaceFeature(val label: String) {
 fun FaceToolPanel(
     eyeEnlarge: Float,
     lipColor: Float,
+    lipShade: Color,
+    teethWhiten: Float,
+    blush: Float,
     faceSlim: Float,
     skinSmooth: Float,
+    skinBrighten: Float,
+    autoApplied: Boolean,
     faceDetected: Boolean?,
+    onAutoBeautyToggle: () -> Unit,
     onEyeEnlargeChange: (Float) -> Unit,
     onLipColorChange: (Float) -> Unit,
+    onLipShadeChange: (Color) -> Unit,
+    onTeethWhitenChange: (Float) -> Unit,
+    onBlushChange: (Float) -> Unit,
     onFaceSlimChange: (Float) -> Unit,
     onSkinSmoothChange: (Float) -> Unit,
+    onSkinBrightenChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val noFace = faceDetected == false
@@ -40,14 +74,20 @@ fun FaceToolPanel(
     val activeValue = when (selected) {
         FaceFeature.EYE -> eyeEnlarge
         FaceFeature.LIP -> lipColor
+        FaceFeature.TEETH -> teethWhiten
+        FaceFeature.BLUSH -> blush
         FaceFeature.SLIM -> faceSlim
         FaceFeature.SMOOTH -> skinSmooth
+        FaceFeature.BRIGHTEN -> skinBrighten
     }
     val onActiveChange: (Float) -> Unit = when (selected) {
         FaceFeature.EYE -> onEyeEnlargeChange
         FaceFeature.LIP -> onLipColorChange
+        FaceFeature.TEETH -> onTeethWhitenChange
+        FaceFeature.BLUSH -> onBlushChange
         FaceFeature.SLIM -> onFaceSlimChange
         FaceFeature.SMOOTH -> onSkinSmoothChange
+        FaceFeature.BRIGHTEN -> onSkinBrightenChange
     }
 
     ToolPanelColumn(title = "Chỉnh mặt", modifier = modifier) {
@@ -66,7 +106,19 @@ fun FaceToolPanel(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+        // Bảng màu son — chỉ hiện khi đang chỉnh môi.
+        if (selected == FaceFeature.LIP && !noFace) {
+            LipShadeRow(selected = lipShade, onSelected = onLipShadeChange)
+        }
         ToolItemStrip {
+            // Làm đẹp 1 chạm: áp preset cả 6 mục; bấm lại khi đang đúng preset → về 0.
+            ToolItemCard(
+                label = "Tự động",
+                icon = Icons.Outlined.AutoAwesome,
+                selected = autoApplied,
+                onClick = onAutoBeautyToggle,
+                enabled = !noFace,
+            )
             ToolItemCard(
                 label = FaceFeature.EYE.label,
                 value = formatFaceValue(eyeEnlarge),
@@ -79,6 +131,20 @@ fun FaceToolPanel(
                 value = formatFaceValue(lipColor),
                 selected = selected == FaceFeature.LIP,
                 onClick = { selected = FaceFeature.LIP },
+                enabled = !noFace,
+            )
+            ToolItemCard(
+                label = FaceFeature.TEETH.label,
+                value = formatFaceValue(teethWhiten),
+                selected = selected == FaceFeature.TEETH,
+                onClick = { selected = FaceFeature.TEETH },
+                enabled = !noFace,
+            )
+            ToolItemCard(
+                label = FaceFeature.BLUSH.label,
+                value = formatFaceValue(blush),
+                selected = selected == FaceFeature.BLUSH,
+                onClick = { selected = FaceFeature.BLUSH },
                 enabled = !noFace,
             )
             ToolItemCard(
@@ -95,6 +161,44 @@ fun FaceToolPanel(
                 onClick = { selected = FaceFeature.SMOOTH },
                 enabled = !noFace,
             )
+            ToolItemCard(
+                label = FaceFeature.BRIGHTEN.label,
+                value = formatFaceValue(skinBrighten),
+                selected = selected == FaceFeature.BRIGHTEN,
+                onClick = { selected = FaceFeature.BRIGHTEN },
+                enabled = !noFace,
+            )
+        }
+    }
+}
+
+/** Dải chấm tròn chọn màu son (kiểu giống BackgroundColorPicker, cỡ nhỏ hơn). */
+@Composable
+private fun LipShadeRow(
+    selected: Color,
+    onSelected: (Color) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+    ) {
+        items(LIP_SHADES) { shade ->
+            val isSelected = shade.value == selected.value
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(shade)
+                    .border(
+                        width = if (isSelected) 3.dp else 1.dp,
+                        color = if (isSelected) AnhnnPurpleDark else Color(0x33000000),
+                        shape = CircleShape,
+                    )
+                    .clickable { onSelected(shade) },
+                contentAlignment = Alignment.Center,
+            ) {}
         }
     }
 }

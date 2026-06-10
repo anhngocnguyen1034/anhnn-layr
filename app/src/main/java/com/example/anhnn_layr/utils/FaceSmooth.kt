@@ -20,9 +20,12 @@ private val FACE_OVAL_IDS = intArrayOf(
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54,
     103, 67, 109,
 )
-// Vành mắt trái/phải + viền ngoài môi — ĐỤC LỖ khỏi mặt nạ để giữ nét sắc.
+// Vành mắt trái/phải + lông mày + viền ngoài môi — ĐỤC LỖ khỏi mặt nạ để giữ nét sắc.
 private val LEFT_EYE_IDS = intArrayOf(33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246)
 private val RIGHT_EYE_IDS = intArrayOf(263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466)
+// Lông mày: vòng kín = mép TRÊN (ngoài→trong) nối mép DƯỚI (trong→ngoài).
+private val LEFT_BROW_IDS = intArrayOf(70, 63, 105, 66, 107, 55, 65, 52, 53, 46)
+private val RIGHT_BROW_IDS = intArrayOf(300, 293, 334, 296, 336, 285, 295, 282, 283, 276)
 private val LIPS_OUTER_IDS = intArrayOf(61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146)
 private const val MAX_SKIN_ID = 466  // index lớn nhất dùng tới
 
@@ -43,7 +46,8 @@ private const val EDGE_HI = 48
  * Thuật toán (xấp xỉ bilateral, tối ưu cho realtime):
  *  1. Lớp mịn = hạ scale → [boxBlur] tách trục 3 lượt (≈ Gaussian, O(W·H) bất kể bán
  *     kính) → upscale. Tránh O(r²) của bilateral thật.
- *  2. Mặt nạ da = đa giác FACE_OVAL, ĐỤC LỖ mắt + môi, mép feather bằng [BlurMaskFilter].
+ *  2. Mặt nạ da = đa giác FACE_OVAL, ĐỤC LỖ mắt + lông mày + môi, mép feather bằng
+ *     [BlurMaskFilter].
  *  3. Blend gốc↔mịn theo mặt nạ * [intensity], có RANGE-GUARD: nơi gốc và bản mờ lệch
  *     sáng nhiều (cạnh: cánh mũi, lông mày) thì giữ gốc → không nhoè nét. Đây là thành
  *     phần "range" của bilateral, áp ở bước blend nên chỉ O(W·H).
@@ -61,28 +65,18 @@ fun applySkinSmoothing(
     if (amount <= 0f || allPoints.size <= MAX_SKIN_ID) return srcBitmap
 
     return runCatching {
-        val w = srcBitmap.width
-        val h = srcBitmap.height
-
-        // --- Khung bao khuôn mặt (chỉ xử lý vùng này) ---
-        val oval = polyPath(allPoints, FACE_OVAL_IDS)
-        val rb = RectF()
-        oval.computeBounds(rb, true)
-        val faceW = rb.width()
-        if (faceW <= 0f) return@runCatching srcBitmap
-        val feather = (faceW * MASK_FEATHER_FRAC).coerceAtLeast(2f)
-        val bx = (rb.left - feather).toInt().coerceIn(0, w - 1)
-        val by = (rb.top - feather).toInt().coerceIn(0, h - 1)
-        val bw = ((rb.right + feather).toInt().coerceIn(bx + 1, w)) - bx
-        val bh = ((rb.bottom + feather).toInt().coerceIn(by + 1, h)) - by
+        // --- Khung bao khuôn mặt + mặt nạ da (helper dùng chung với sáng da) ---
+        val region = buildFaceRegion(srcBitmap, allPoints) ?: return@runCatching srcBitmap
+        val bx = region.bx
+        val by = region.by
+        val bw = region.bw
+        val bh = region.bh
 
         // --- (1) Lớp mịn: hạ scale → box-blur → upscale ---
-        val smoothed = buildSmoothedLayer(srcBitmap, faceW)
+        val smoothed = buildSmoothedLayer(srcBitmap, region.faceWidth)
 
-        // --- (2) Mặt nạ da (alpha = trọng số mịn 0..255) ---
-        val mask = buildSkinMask(allPoints, w, h, oval, feather)
-
-        // --- (3) Blend trong khung bao ---
+        // --- (2) + (3) Blend trong khung bao theo mặt nạ ---
+        val mask = region.mask
         val area = bw * bh
         val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
         val smoBuf = IntArray(area).also { smoothed.getPixels(it, 0, bw, bx, by, bw, bh) }
@@ -122,6 +116,99 @@ fun applySkinSmoothing(
     }.getOrElse { srcBitmap }
 }
 
+// Mức nâng sáng tối đa khi cường độ = 1 (screen-blend về phía trắng: pixel càng sáng
+// càng được cộng ít nên highlight không bị cháy).
+private const val BRIGHTEN_LIFT_MAX = 0.30f
+
+/**
+ * Sáng da / trắng da từ 468 điểm Face Mesh. Dùng CHUNG mặt nạ da với [applySkinSmoothing]
+ * (oval mặt, đục mắt + lông mày + môi, mép feather) nhưng thay vì blend lớp mờ thì nâng
+ * sáng kiểu screen: c' = c + (255 − c) · lift — da sáng đều, highlight không cháy, mắt/
+ * mày/môi giữ nguyên độ tương phản.
+ * @param intensity 0..1. Trả về thẳng [srcBitmap] khi không cần / thiếu điểm / lỗi.
+ * Thuần CPU — gọi trên Dispatchers.Default.
+ */
+fun applySkinBrighten(
+    srcBitmap: Bitmap,
+    allPoints: List<FaceMeshPoint>,
+    intensity: Float,
+): Bitmap {
+    val amount = intensity.coerceIn(0f, 1f)
+    if (amount <= 0f || allPoints.size <= MAX_SKIN_ID) return srcBitmap
+
+    return runCatching {
+        val region = buildFaceRegion(srcBitmap, allPoints) ?: return@runCatching srcBitmap
+        val bx = region.bx
+        val by = region.by
+        val bw = region.bw
+        val bh = region.bh
+
+        val area = bw * bh
+        val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val mskBuf = IntArray(area).also { region.mask.getPixels(it, 0, bw, bx, by, bw, bh) }
+
+        // lift256 = trọng số nâng sáng 0..256, nhân sẵn cường độ để vòng lặp chỉ còn
+        // số nguyên (như applySkinSmoothing).
+        val amount256 = (amount * BRIGHTEN_LIFT_MAX * 256f).toInt()
+        for (i in 0 until area) {
+            val ma = (mskBuf[i] ushr 24) and 0xFF
+            if (ma == 0) continue
+            val lift256 = ma * amount256 / 255
+            if (lift256 <= 0) continue
+            val p = srcBuf[i]
+            val r = (p ushr 16) and 0xFF
+            val g = (p ushr 8) and 0xFF
+            val b = p and 0xFF
+            val rr = r + (((255 - r) * lift256) shr 8)
+            val gg = g + (((255 - g) * lift256) shr 8)
+            val bb = b + (((255 - b) * lift256) shr 8)
+            srcBuf[i] = (p and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
+        }
+
+        val out = srcBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        out.setPixels(srcBuf, 0, bw, bx, by, bw, bh)
+        region.mask.recycle()
+        out
+    }.getOrElse { srcBitmap }
+}
+
+/** Khung bao khuôn mặt + mặt nạ da — phần dùng chung của mịn da và sáng da. */
+private class FaceRegion(
+    val bx: Int,
+    val by: Int,
+    val bw: Int,
+    val bh: Int,
+    val faceWidth: Float,
+    val mask: Bitmap,
+)
+
+/**
+ * Dựng [FaceRegion] từ 468 điểm: oval mặt → khung bao (nở thêm feather, kẹp trong ảnh)
+ * + mặt nạ da ([buildSkinMask]). Trả về null khi không dựng được (mặt suy biến).
+ */
+private fun buildFaceRegion(src: Bitmap, pts: List<FaceMeshPoint>): FaceRegion? {
+    val w = src.width
+    val h = src.height
+    val oval = polyPath(pts, FACE_OVAL_IDS)
+    val rb = RectF()
+    oval.computeBounds(rb, true)
+    val faceW = rb.width()
+    if (faceW <= 0f) return null
+    val feather = (faceW * MASK_FEATHER_FRAC).coerceAtLeast(2f)
+    val bx = (rb.left - feather).toInt().coerceIn(0, w - 1)
+    val by = (rb.top - feather).toInt().coerceIn(0, h - 1)
+    val bw = ((rb.right + feather).toInt().coerceIn(bx + 1, w)) - bx
+    val bh = ((rb.bottom + feather).toInt().coerceIn(by + 1, h)) - by
+    return FaceRegion(
+        bx = bx,
+        by = by,
+        bw = bw,
+        bh = bh,
+        faceWidth = faceW,
+        mask = buildSkinMask(pts, w, h, oval, feather),
+    )
+}
+
 /** Lớp mịn toàn ảnh: hạ scale về [PROC_MAX_WIDTH] → box-blur 3 lượt → upscale lại. */
 private fun buildSmoothedLayer(src: Bitmap, faceWidth: Float): Bitmap {
     val scale = (PROC_MAX_WIDTH.toFloat() / src.width).coerceAtMost(1f)   // chỉ thu nhỏ
@@ -139,7 +226,7 @@ private fun buildSmoothedLayer(src: Bitmap, faceWidth: Float): Bitmap {
     return up
 }
 
-/** Mặt nạ ARGB: oval mặt = alpha 255, đục mắt/môi = 0, mép feather (BlurMaskFilter). */
+/** Mặt nạ ARGB: oval mặt = alpha 255, đục mắt/lông mày/môi = 0, mép feather (BlurMaskFilter). */
 private fun buildSkinMask(pts: List<FaceMeshPoint>, w: Int, h: Int, oval: Path, feather: Float): Bitmap {
     val mask = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(mask)
@@ -155,6 +242,8 @@ private fun buildSkinMask(pts: List<FaceMeshPoint>, w: Int, h: Int, oval: Path, 
     }
     canvas.drawPath(polyPath(pts, LEFT_EYE_IDS), clear)
     canvas.drawPath(polyPath(pts, RIGHT_EYE_IDS), clear)
+    canvas.drawPath(polyPath(pts, LEFT_BROW_IDS), clear)
+    canvas.drawPath(polyPath(pts, RIGHT_BROW_IDS), clear)
     canvas.drawPath(polyPath(pts, LIPS_OUTER_IDS), clear)
     return mask
 }

@@ -8,54 +8,49 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Region
+import android.graphics.Shader
 import android.os.Build
 import com.google.mlkit.vision.facemesh.FaceMeshPoint
 
 /** Màu môi hồng mặc định. */
 const val LIP_PINK: Int = 0xFFF0567A.toInt()
 
-// Độ phủ tối đa của lớp màu khi cường độ = 1 (tô film, không phủ đặc).
-private const val MAX_LIP_ALPHA = 0.6f
+/**
+ * Bảng màu son cho tab "Mặt" (ARGB). [LIP_PINK] đứng đầu làm mặc định; các màu còn lại
+ * theo tông son thật phổ biến (đỏ cổ điển, cam đào, hồng đất, mận, đỏ rượu, nude...).
+ */
+val LIP_PALETTE: List<Int> = listOf(
+    LIP_PINK,                 // Hồng
+    0xFFD32F2F.toInt(),       // Đỏ cổ điển
+    0xFFB7472A.toInt(),       // Đỏ gạch
+    0xFFFF7043.toInt(),       // Cam đào
+    0xFFC97B72.toInt(),       // Hồng đất (MLBB)
+    0xFF8E3B59.toInt(),       // Mận
+    0xFF7B1F2B.toInt(),       // Đỏ rượu
+    0xFFC8917F.toInt(),       // Nude
+)
+
+// Độ phủ tối đa khi cường độ = 1 — chừa lại chút môi gốc cho tự nhiên, không phủ đặc.
+private const val MAX_LIPSTICK_ALPHA = 0.9f
 
 /**
- * Tô màu môi (makeup). Vẽ đa giác viền môi [outline] bằng [color] với:
- * - [PorterDuff.Mode.SRC_ATOP]: chỉ ăn màu lên pixel ĐÃ CÓ của chủ thể (giữ nguyên
- *   alpha, không lem ra vùng trong suốt ngoài mặt).
- * - [BlurMaskFilter]: mép môi mềm, hoà tự nhiên.
- * [intensity] (0..1) điều chỉnh độ đậm. Trả về thẳng [src] khi không cần làm gì.
- * Hàm thuần CPU — gọi trên Dispatchers.Default.
+ * Bản tiện dụng của [applyLipstick] nhận cường độ 0..1 (giá trị slider) thay vì alpha
+ * 0..255 — quy đổi qua [MAX_LIPSTICK_ALPHA] để cường độ tối đa vẫn giữ nét môi gốc.
  */
-fun applyLipColor(src: Bitmap, outline: List<FacePoint>?, color: Int, intensity: Float): Bitmap {
-    if (intensity <= 0f || outline == null || outline.size < 3) return src
-
-    val path = Path().apply {
-        moveTo(outline[0].x, outline[0].y)
-        for (k in 1 until outline.size) lineTo(outline[k].x, outline[k].y)
-        close()
-    }
-
-    var minY = Float.MAX_VALUE
-    var maxY = -Float.MAX_VALUE
-    for (p in outline) {
-        if (p.y < minY) minY = p.y
-        if (p.y > maxY) maxY = p.y
-    }
-    val lipHeight = (maxY - minY).coerceAtLeast(1f)
-
-    val out = src.copy(Bitmap.Config.ARGB_8888, true)
-    val paint = Paint().apply {
-        isAntiAlias = true
-        this.color = color
-        // Đặt alpha SAU color (giữ RGB, chỉ đổi byte alpha).
-        alpha = (intensity * MAX_LIP_ALPHA * 255f).toInt().coerceIn(0, 255)
-        maskFilter = BlurMaskFilter((lipHeight * 0.12f).coerceAtLeast(1f), BlurMaskFilter.Blur.NORMAL)
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
-    }
-    Canvas(out).drawPath(path, paint)
-    return out
-}
+fun applyLipstick(
+    srcBitmap: Bitmap,
+    allPoints: List<FaceMeshPoint>,
+    lipstickColor: Int,
+    intensity: Float,
+): Bitmap = applyLipstick(
+    srcBitmap = srcBitmap,
+    allPoints = allPoints,
+    lipstickColor = lipstickColor,
+    opacity = (intensity.coerceIn(0f, 1f) * MAX_LIPSTICK_ALPHA * 255f).toInt(),
+)
 
 // ID điểm mốc môi theo chuẩn Canonical Face Mesh (MediaPipe/ML Kit, index 0..467).
 // Mỗi mảng là một vòng KÍN đi theo thứ tự: nửa môi trên (trái→phải) rồi nửa môi dưới
@@ -133,6 +128,159 @@ fun applyLipstick(
         canvas.restore()
         out
     }.getOrElse { srcBitmap }
+}
+
+// --- Má hồng ---
+
+/** Màu má hồng tự nhiên. */
+const val BLUSH_PINK: Int = 0xFFE8707E.toInt()
+
+// Độ phủ tối đa ở tâm má khi cường độ = 1 (gradient tản dần ra rìa nên nhìn mỏng hơn).
+private const val MAX_BLUSH_ALPHA = 0.35f
+// Tâm má hai bên theo chuẩn Canonical Face Mesh (vùng "táo má" dưới gò má).
+private const val LEFT_CHEEK_APPLE_ID = 425
+private const val RIGHT_CHEEK_APPLE_ID = 205
+// Bán kính vùng má = khoảng cách giữa 2 tâm má * hệ số (tự cân theo cỡ mặt/góc nghiêng).
+private const val BLUSH_RADIUS_FRAC = 0.30f
+
+/**
+ * Đánh má hồng từ 468 điểm Face Mesh: tại tâm má mỗi bên vẽ một [RadialGradient]
+ * [color] → trong suốt (đậm ở tâm, tản mượt ra rìa như cọ phấn), [PorterDuff.Mode.SRC_ATOP]
+ * để chỉ ăn lên pixel có sẵn của chủ thể (không lem ra nền trong suốt).
+ * @param intensity 0..1. Trả về thẳng [srcBitmap] khi không cần / thiếu điểm / lỗi.
+ * Thuần CPU — gọi trên Dispatchers.Default.
+ */
+fun applyBlush(
+    srcBitmap: Bitmap,
+    allPoints: List<FaceMeshPoint>,
+    color: Int,
+    intensity: Float,
+): Bitmap {
+    val amount = intensity.coerceIn(0f, 1f)
+    val maxId = maxOf(LEFT_CHEEK_APPLE_ID, RIGHT_CHEEK_APPLE_ID)
+    if (amount <= 0f || allPoints.size <= maxId) return srcBitmap
+
+    return runCatching {
+        val left = allPoints[LEFT_CHEEK_APPLE_ID].position
+        val right = allPoints[RIGHT_CHEEK_APPLE_ID].position
+        val span = kotlin.math.hypot(left.x - right.x, left.y - right.y)
+        val radius = span * BLUSH_RADIUS_FRAC
+        if (radius < 2f) return@runCatching srcBitmap
+
+        val centerAlpha = (amount * MAX_BLUSH_ALPHA * 255f).toInt().coerceIn(0, 255)
+        val centerColor = (centerAlpha shl 24) or (color and 0x00FFFFFF)
+        val edgeColor = color and 0x00FFFFFF
+
+        val out = srcBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(out)
+        for (p in listOf(left, right)) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(
+                    p.x, p.y, radius,
+                    centerColor, edgeColor,
+                    Shader.TileMode.CLAMP,
+                )
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+            }
+            canvas.drawCircle(p.x, p.y, radius, paint)
+        }
+        out
+    }.getOrElse { srcBitmap }
+}
+
+// --- Răng trắng ---
+
+// Guard theo độ sáng (luma 0..255): dưới LO (khoang miệng tối, lưỡi, kẽ răng) không xử
+// lý; trên HI (răng sáng) xử lý hết; ở giữa nội suy tuyến tính → miệng há không bị xám.
+private const val TEETH_LUMA_LO = 70
+private const val TEETH_LUMA_HI = 135
+// Mức khử màu (bỏ ám vàng, kéo về xám trung tính) và nâng sáng tối đa khi cường độ = 1.
+private const val TEETH_DESAT_MAX = 0.7f
+private const val TEETH_LIFT_MAX = 0.22f
+// Mép mặt nạ mềm = chiều cao vùng miệng * hệ số.
+private const val TEETH_FEATHER_FRAC = 0.15f
+
+/**
+ * Làm trắng răng từ 468 điểm Face Mesh. Vùng trong miệng (đa giác [INNER_LIP_IDS] —
+ * cùng đa giác mà son môi đục lỗ bảo vệ) được khử bão hoà + nâng sáng:
+ * - Mặt nạ mép mềm ([BlurMaskFilter]) như son, chỉ tính trong khung bao vùng miệng.
+ * - Guard độ sáng: chỉ ăn vào pixel sáng (răng), bỏ qua khoang miệng tối/lưỡi.
+ * - Miệng ngậm (đa giác gần suy biến) → trả về ảnh gốc, không lem lên vành môi.
+ * @param intensity 0..1. Trả về thẳng [srcBitmap] khi không cần / thiếu điểm / lỗi.
+ * Thuần CPU — gọi trên Dispatchers.Default.
+ */
+fun applyTeethWhiten(
+    srcBitmap: Bitmap,
+    allPoints: List<FaceMeshPoint>,
+    intensity: Float,
+): Bitmap {
+    val amount = intensity.coerceIn(0f, 1f)
+    if (amount <= 0f || allPoints.size <= MAX_LIP_ID) return srcBitmap
+
+    return runCatching {
+        val inner = lipPath(allPoints, INNER_LIP_IDS)
+        val rb = RectF()
+        inner.computeBounds(rb, true)
+        // Miệng ngậm: vùng trong miệng chỉ là lằn mỏng → không có răng để trắng.
+        if (rb.height() < 4f || rb.width() < 4f) return@runCatching srcBitmap
+
+        val w = srcBitmap.width
+        val h = srcBitmap.height
+        val feather = (rb.height() * TEETH_FEATHER_FRAC).coerceAtLeast(1f)
+        val bx = (rb.left - feather).toInt().coerceIn(0, w - 1)
+        val by = (rb.top - feather).toInt().coerceIn(0, h - 1)
+        val bw = ((rb.right + feather).toInt().coerceIn(bx + 1, w)) - bx
+        val bh = ((rb.bottom + feather).toInt().coerceIn(by + 1, h)) - by
+
+        // Mặt nạ chỉ bằng khung bao vùng miệng (dịch canvas về gốc khung) cho nhẹ RAM.
+        val mask = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+        Canvas(mask).apply {
+            translate(-bx.toFloat(), -by.toFloat())
+            drawPath(
+                inner,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.WHITE
+                    maskFilter = BlurMaskFilter(feather, BlurMaskFilter.Blur.NORMAL)
+                },
+            )
+        }
+
+        val area = bw * bh
+        val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val mskBuf = IntArray(area).also { mask.getPixels(it, 0, bw, 0, 0, bw, bh) }
+
+        for (i in 0 until area) {
+            val ma = (mskBuf[i] ushr 24) and 0xFF
+            if (ma == 0) continue
+            val p = srcBuf[i]
+            val r = (p ushr 16) and 0xFF
+            val g = (p ushr 8) and 0xFF
+            val b = p and 0xFF
+            val luma = (r * 77 + g * 150 + b * 29) ushr 8
+            if (luma <= TEETH_LUMA_LO) continue
+            val bright = if (luma >= TEETH_LUMA_HI) 1f
+            else (luma - TEETH_LUMA_LO).toFloat() / (TEETH_LUMA_HI - TEETH_LUMA_LO)
+            val wq = (ma / 255f) * amount * bright
+            val desat = TEETH_DESAT_MAX * wq
+            val lift = TEETH_LIFT_MAX * wq
+            // Khử vàng: kéo từng kênh về luma; nâng sáng: cộng phần còn thiếu tới trắng.
+            val rr = whitenChannel(r, luma, desat, lift)
+            val gg = whitenChannel(g, luma, desat, lift)
+            val bb = whitenChannel(b, luma, desat, lift)
+            srcBuf[i] = (p and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
+        }
+
+        val out = srcBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        out.setPixels(srcBuf, 0, bw, bx, by, bw, bh)
+        mask.recycle()
+        out
+    }.getOrElse { srcBitmap }
+}
+
+/** Một kênh màu: desaturate về [luma] rồi nâng sáng về phía 255, kẹp 0..255. */
+private fun whitenChannel(c: Int, luma: Int, desat: Float, lift: Float): Int {
+    val d = c + ((luma - c) * desat)
+    return (d + (255f - d) * lift).toInt().coerceIn(0, 255)
 }
 
 /** Dựng [Path] kín từ danh sách ID điểm Face Mesh (đọc x,y, bỏ z). */
