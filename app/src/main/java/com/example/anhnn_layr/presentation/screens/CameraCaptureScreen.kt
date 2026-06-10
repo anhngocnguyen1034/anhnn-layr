@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.FlashAuto
 import androidx.compose.material.icons.outlined.FlashOff
 import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.TimerOff
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.AlertDialog
@@ -78,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -93,6 +95,7 @@ import com.example.anhnn_layr.utils.GalleryPhoto
 import com.example.anhnn_layr.utils.queryCapturedPhotos
 import com.example.anhnn_layr.utils.saveCaptureToGallery
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -274,6 +277,11 @@ private fun LiveCamera(
     var screenFlashOn by rememberSaveable { mutableStateOf(false) }
     // true trong lúc đang lóe trắng chờ chụp.
     var screenFlashActive by remember { mutableStateOf(false) }
+    // Hẹn giờ chụp: 0 = tắt, 3 hoặc 10 giây — giữ qua xoay máy / đổi ống kính.
+    var timerSeconds by rememberSaveable { mutableStateOf(0) }
+    // Số giây còn lại đang đếm ngược (0 = không đếm) + job để huỷ giữa chừng.
+    var countdown by remember { mutableStateOf(0) }
+    var countdownJob by remember { mutableStateOf<Job?>(null) }
 
     // Đẩy/trả độ sáng màn hình theo trạng thái lóe. onDispose trả về mặc định phòng
     // trường hợp rời màn giữa chừng (chụp xong là rời composition ngay).
@@ -358,7 +366,8 @@ private fun LiveCamera(
             },
         )
     }
-    val takePhoto = takePhoto@{
+    // Nhả cò thật sự: qua lóe màn hình (selfie) hoặc chụp thẳng.
+    val fireCapture = {
         if (isFrontLens && screenFlashOn) {
             // Lóe trắng + sáng tối đa, chờ một nhịp cho màn hình rọi lên mặt và AE
             // thích ứng rồi mới chụp; tắt lóe trong callback chụp xong/ lỗi.
@@ -369,6 +378,27 @@ private fun LiveCamera(
             }
         } else {
             capture()
+        }
+        Unit
+    }
+    val takePhoto = takePhoto@{
+        // Đang đếm ngược → bấm nút chụp lần nữa là HUỶ hẹn giờ.
+        if (countdown > 0) {
+            countdownJob?.cancel()
+            countdown = 0
+            return@takePhoto
+        }
+        if (timerSeconds > 0) {
+            countdownJob = scope.launch {
+                countdown = timerSeconds
+                while (countdown > 0) {
+                    delay(1000)
+                    countdown--
+                }
+                fireCapture()
+            }
+        } else {
+            fireCapture()
         }
         Unit
     }
@@ -421,41 +451,66 @@ private fun LiveCamera(
                 .padding(16.dp),
         )
 
-        // Nút flash: ống kính có đèn → xoay vòng Tắt/Tự động/Bật; camera trước không
-        // đèn → công tắc "flash màn hình" Tắt/Bật.
-        if (hasFlashUnit) {
-            CircleIconButton(
-                icon = when (flashMode) {
-                    ImageCapture.FLASH_MODE_ON -> Icons.Outlined.FlashOn
-                    ImageCapture.FLASH_MODE_AUTO -> Icons.Outlined.FlashAuto
-                    else -> Icons.Outlined.FlashOff
-                },
-                contentDescription = when (flashMode) {
-                    ImageCapture.FLASH_MODE_ON -> "Flash: bật"
-                    ImageCapture.FLASH_MODE_AUTO -> "Flash: tự động"
-                    else -> "Flash: tắt"
-                },
+        // Cột nút góc trên-phải: flash (đèn thật / flash màn hình) + hẹn giờ.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Nút flash: ống kính có đèn → xoay vòng Tắt/Tự động/Bật; camera trước
+            // không đèn → công tắc "flash màn hình" Tắt/Bật.
+            if (hasFlashUnit) {
+                CircleIconButton(
+                    icon = when (flashMode) {
+                        ImageCapture.FLASH_MODE_ON -> Icons.Outlined.FlashOn
+                        ImageCapture.FLASH_MODE_AUTO -> Icons.Outlined.FlashAuto
+                        else -> Icons.Outlined.FlashOff
+                    },
+                    contentDescription = when (flashMode) {
+                        ImageCapture.FLASH_MODE_ON -> "Flash: bật"
+                        ImageCapture.FLASH_MODE_AUTO -> "Flash: tự động"
+                        else -> "Flash: tắt"
+                    },
+                    onClick = {
+                        flashMode = when (flashMode) {
+                            ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                            ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                            else -> ImageCapture.FLASH_MODE_OFF
+                        }
+                    },
+                )
+            } else if (isFrontLens) {
+                CircleIconButton(
+                    icon = if (screenFlashOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
+                    contentDescription = if (screenFlashOn) "Flash màn hình: bật" else "Flash màn hình: tắt",
+                    onClick = { screenFlashOn = !screenFlashOn },
+                )
+            }
+
+            // Nút hẹn giờ: xoay vòng Tắt → 3s → 10s.
+            TimerButton(
+                timerSeconds = timerSeconds,
                 onClick = {
-                    flashMode = when (flashMode) {
-                        ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
-                        ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-                        else -> ImageCapture.FLASH_MODE_OFF
+                    timerSeconds = when (timerSeconds) {
+                        0 -> 3
+                        3 -> 10
+                        else -> 0
                     }
                 },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(16.dp),
             )
-        } else if (isFrontLens) {
-            CircleIconButton(
-                icon = if (screenFlashOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
-                contentDescription = if (screenFlashOn) "Flash màn hình: bật" else "Flash màn hình: tắt",
-                onClick = { screenFlashOn = !screenFlashOn },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(16.dp),
+        }
+
+        // Số đếm ngược to giữa màn hình khi đang hẹn giờ.
+        if (countdown > 0) {
+            Text(
+                text = countdown.toString(),
+                color = Color.White,
+                fontSize = 96.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center),
             )
         }
 
@@ -521,6 +576,41 @@ private fun LiveCamera(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.White),
+            )
+        }
+    }
+}
+
+/**
+ * Nút hẹn giờ chụp: tắt → icon đồng hồ gạch chéo; 3s/10s → hiện thẳng chữ "3s"/"10s"
+ * để khỏi đoán nghĩa icon. Cùng cỡ và nền với [CircleIconButton].
+ */
+@Composable
+private fun TimerButton(
+    timerSeconds: Int,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (timerSeconds == 0) {
+            Icon(
+                imageVector = Icons.Outlined.TimerOff,
+                contentDescription = "Hẹn giờ: tắt",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp),
+            )
+        } else {
+            Text(
+                text = "${timerSeconds}s",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleSmall,
             )
         }
     }
