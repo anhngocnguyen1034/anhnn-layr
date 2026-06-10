@@ -88,6 +88,7 @@ import com.example.anhnn_layr.presentation.viewmodels.EditorState
 import com.example.anhnn_layr.presentation.viewmodels.EditorTool
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.utils.BrushMode
+import com.example.anhnn_layr.utils.ColorPreset
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.TouchPath
@@ -115,6 +116,7 @@ fun EditorScreen(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onColorPresetChange: (ColorPreset) -> Unit,
     onAutoBeautyToggle: () -> Unit,
     onEyeEnlargeChange: (Float) -> Unit,
     onLipColorChange: (Float) -> Unit,
@@ -162,6 +164,7 @@ fun EditorScreen(
                     editor.brightness,
                     editor.contrast,
                     editor.saturation,
+                    editor.colorPreset,
                 ),
             )
             val hasTransparency = editor.selectedColor == Color.Transparent &&
@@ -230,6 +233,7 @@ fun EditorScreen(
             )
             FloatingToolPanel(
                 editor = editor,
+                previewBitmap = effectedBitmap,
                 onColorChange = onColorChange,
                 onFeatherChange = onFeatherChange,
                 onBackgroundImageSelected = onBackgroundImageSelected,
@@ -238,6 +242,7 @@ fun EditorScreen(
                 onBrightnessChange = onBrightnessChange,
                 onContrastChange = onContrastChange,
                 onSaturationChange = onSaturationChange,
+                onColorPresetChange = onColorPresetChange,
                 onAutoBeautyToggle = onAutoBeautyToggle,
                 onEyeEnlargeChange = onEyeEnlargeChange,
                 onLipColorChange = onLipColorChange,
@@ -533,9 +538,18 @@ private fun PreviewCanvas(
         } else {
             // Màu áp bằng ColorFilter (GPU) để đổi tức thời khi kéo slider, không
             // phải nướng lại bitmap.
-            val colorFilter = remember(editor.brightness, editor.contrast, editor.saturation) {
-                colorAdjustMatrixOrNull(editor.brightness, editor.contrast, editor.saturation)
-                    ?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
+            val colorFilter = remember(
+                editor.brightness,
+                editor.contrast,
+                editor.saturation,
+                editor.colorPreset,
+            ) {
+                colorAdjustMatrixOrNull(
+                    editor.brightness,
+                    editor.contrast,
+                    editor.saturation,
+                    editor.colorPreset,
+                )?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
             }
             // Bọc 1 lần / mỗi bitmap, tránh tạo wrapper mới mỗi frame khi kéo slider.
             val effectedImage = remember(effectedBitmap) { effectedBitmap.asImageBitmap() }
@@ -669,6 +683,7 @@ private fun InlineTextEditor(
 @Composable
 private fun FloatingToolPanel(
     editor: EditorState,
+    previewBitmap: Bitmap,
     onColorChange: (Color) -> Unit,
     onFeatherChange: (Float) -> Unit,
     onBackgroundImageSelected: (android.graphics.Bitmap?) -> Unit,
@@ -677,6 +692,7 @@ private fun FloatingToolPanel(
     onBrightnessChange: (Float) -> Unit,
     onContrastChange: (Float) -> Unit,
     onSaturationChange: (Float) -> Unit,
+    onColorPresetChange: (ColorPreset) -> Unit,
     onAutoBeautyToggle: () -> Unit,
     onEyeEnlargeChange: (Float) -> Unit,
     onLipColorChange: (Float) -> Unit,
@@ -739,9 +755,12 @@ private fun FloatingToolPanel(
                         onUseOriginalBackground = onUseOriginalBackground,
                     )
                     EditorTool.EFFECTS -> EffectsToolPanel(
+                        previewBitmap = previewBitmap,
+                        colorPreset = editor.colorPreset,
                         brightness = editor.brightness,
                         contrast = editor.contrast,
                         saturation = editor.saturation,
+                        onColorPresetChange = onColorPresetChange,
                         onBrightnessChange = onBrightnessChange,
                         onContrastChange = onContrastChange,
                         onSaturationChange = onSaturationChange,

@@ -18,6 +18,7 @@ import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.domain.usecases.SaveDraftUseCase
 import com.example.anhnn_layr.utils.BrushMode
+import com.example.anhnn_layr.utils.ColorPreset
 import com.example.anhnn_layr.utils.GalleryPhoto
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.TextSticker
@@ -105,6 +106,8 @@ data class EditorState(
     val brightness: Float = 0f,
     val contrast: Float = 0f,
     val saturation: Float = 0f,
+    // Bộ lọc màu preset (tab FX) — áp bằng ColorFilter như brightness/contrast/saturation.
+    val colorPreset: ColorPreset = ColorPreset.NONE,
     // Chỉnh mặt: cường độ phóng to mắt (0..1). null = chưa dò mặt; true/false = có/không
     // tìm thấy khuôn mặt (để UI báo trạng thái).
     val eyeEnlarge: Float = 0f,
@@ -438,6 +441,8 @@ class RembgViewModel @Inject constructor(
     fun setContrast(value: Float) = _editor.update { it.copy(contrast = value) }
 
     fun setSaturation(value: Float) = _editor.update { it.copy(saturation = value) }
+
+    fun setColorPreset(preset: ColorPreset) = _editor.update { it.copy(colorPreset = preset) }
 
     fun useOriginalAsBackground() {
         val orig = originalBitmap ?: return
@@ -807,6 +812,7 @@ private fun EditorState.toSnapshot(): EditorStateSnapshot = EditorStateSnapshot(
     textStickers = textStickers.map { it.toSnapshot() },
     selectedTextStickerId = selectedTextStickerId,
     isBackgroundRemoved = isBackgroundRemoved,
+    colorPreset = colorPreset.name,
     eyeEnlarge = eyeEnlarge,
     lipColor = lipColor,
     lipShadeArgb = lipShade.toArgb().toLong() and 0xFFFFFFFFL,
@@ -842,6 +848,9 @@ private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorSta
     textStickers = textStickers.orEmpty().map { it.toTextSticker() },
     selectedTextStickerId = selectedTextStickerId,
     isBackgroundRemoved = bgRemoved,
+    colorPreset = colorPreset
+        ?.let { runCatching { ColorPreset.valueOf(it) }.getOrNull() }
+        ?: ColorPreset.NONE,
     eyeEnlarge = eyeEnlarge ?: 0f,
     lipColor = lipColor ?: 0f,
     lipShade = lipShadeArgb?.let { Color(it.toInt()) } ?: Color(LIP_PINK),

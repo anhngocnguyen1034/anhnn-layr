@@ -37,6 +37,8 @@ data class EditorStateSnapshot(
     val selectedTextStickerId: String? = null,
     // null = bản nháp cũ (trước khi có luồng "Chỉnh ảnh") → coi như đã xoá nền.
     val isBackgroundRemoved: Boolean? = null,
+    // Bộ lọc màu preset (tên enum ColorPreset) — null = bản nháp cũ → NONE.
+    val colorPreset: String? = null,
     // Chỉnh mặt — null = bản nháp cũ (trước khi lưu nhóm này) → mặc định 0 / màu mặc định.
     val eyeEnlarge: Float? = null,
     val lipColor: Float? = null,

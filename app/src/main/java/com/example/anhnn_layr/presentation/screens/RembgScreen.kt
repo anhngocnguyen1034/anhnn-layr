@@ -194,6 +194,7 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             onBrightnessChange = vm::setBrightness,
             onContrastChange = vm::setContrast,
             onSaturationChange = vm::setSaturation,
+            onColorPresetChange = vm::setColorPreset,
             onAutoBeautyToggle = vm::toggleAutoBeauty,
             onEyeEnlargeChange = vm::setEyeEnlarge,
             onLipColorChange = vm::setLipColor,
