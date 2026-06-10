@@ -141,4 +141,27 @@ class FaceReshapeTest {
         assertEquals(0f, x, 1e-3f)
         assertEquals(0f, y, 1e-3f)
     }
+
+    @Test
+    fun `slim nen ngoai vien ma khong bi keo theo (outerGuard)`() {
+        val verts = computeFaceSlimVerts(W, H, leftCheek(), 1f)!!
+        // (30,120) = col6,row24: TRONG bán kính anchor (cách 30 < 60) nhưng ở phía nền,
+        // q = (100-30)/(100-60) = 1.75 > OUTER_GUARD_END (1.5) → không dịch.
+        val (x, y) = vert(verts, 6, 24)
+        assertEquals("nền ngoài viền má phải đứng yên", 30f, x, 1e-3f)
+        assertEquals(120f, y, 1e-3f)
+    }
+
+    @Test
+    fun `slim dai chuyen tiep sat vien ma dich mot phan`() {
+        val verts = computeFaceSlimVerts(W, H, leftCheek(), 1f)!!
+        // (45,120) = col9,row24: q = 55/40 = 1.375, nằm trong dải tắt dần [1, 1.5]
+        // → có dịch nhưng ít hơn đỉnh ngay viền má (60,120).
+        val (xBand, _) = vert(verts, 9, 24)
+        val (xEdge, _) = vert(verts, 12, 24)
+        val moveBand = xBand - 45f
+        val moveEdge = xEdge - 60f
+        assertTrue("dải chuyển tiếp vẫn dịch dương", moveBand > 0f)
+        assertTrue("dịch ít hơn viền má", moveBand < moveEdge)
+    }
 }

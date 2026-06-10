@@ -16,6 +16,12 @@ private const val MAX_ZOOM = 0.6f
 // Tỉ lệ kéo viền má vào trục tối đa khi strength = 1 (0.18 = thu ~18% khoảng cách tới trục).
 private const val SLIM_MAX = 0.18f
 
+// outerGuard: ngoài viền má (phía nền), lực kéo tắt dần và về 0 khi khoảng cách tới trục
+// đạt q = OUTER_GUARD_END lần khoảng cách anchor→trục. Nền ở xa giữ nguyên → đường thẳng
+// phía sau (khung cửa, mép tường) không bị kéo cong theo má; phần "co giãn" dồn vào dải
+// hẹp sát viền mặt nên khó nhận ra.
+private const val OUTER_GUARD_END = 1.5f
+
 /**
  * Phóng to mắt bằng phép warp lưới ([Canvas.drawBitmapMesh]). Mỗi mắt tạo một "zoom
  * cục bộ": các đỉnh lưới quanh tâm mắt bị đẩy ra xa tâm theo độ mạnh giảm dần
@@ -103,7 +109,8 @@ fun applyFaceSlim(src: Bitmap, landmarks: FaceLandmarks?, strength: Float): Bitm
  * anchor má/hàm bị KÉO NGANG về trục giữa ([FaceLandmarks.faceAxis]); dịch chuyển càng
  * lớn khi càng gần anchor (smoothstep theo bán kính) và giảm về 0 khi:
  *  - tới rìa vùng ảnh hưởng  → hạn chế cong vẹo phông nền phía sau,
- *  - tới gần trục giữa (miệng/mũi/cằm) → không méo khuôn miệng (centerGuard).
+ *  - tới gần trục giữa (miệng/mũi/cằm) → không méo khuôn miệng (centerGuard),
+ *  - ra ngoài viền má về phía nền (q > 1) → nền không bị kéo theo (outerGuard).
  *
  * Chỉ dịch theo trục X (giữ nguyên chiều cao mặt). Hàm THUẦN (không Android) để test JVM.
  * Trả về null khi không cần warp (strength<=0, không có má/trục) → caller dùng ảnh gốc.
@@ -161,12 +168,18 @@ fun computeFaceSlimVerts(
                     val dist = kotlin.math.sqrt(dist2)
                     val r = 1f - dist / infl
                     val radial = r * r * (3f - 2f * r)  // smoothstep theo bán kính
-                    // centerGuard: chuẩn hoá theo offset của anchor → 0 ở trục, 1 ở viền.
+                    // q chuẩn hoá theo offset của anchor: 0 ở trục, 1 ở viền má, >1 phía nền.
                     val anchorOffset = axisX - a.cx
                     if (anchorOffset == 0f) continue
-                    val q = (toAxis / anchorOffset).coerceIn(0f, 1f)
-                    val centerGuard = q * q * (3f - 2f * q)
-                    dx += toAxis * (strength * SLIM_MAX * radial * centerGuard)
+                    val q = toAxis / anchorOffset
+                    // centerGuard: giảm về 0 khi tới gần trục giữa → không méo miệng/mũi.
+                    val c = q.coerceIn(0f, 1f)
+                    val centerGuard = c * c * (3f - 2f * c)
+                    // outerGuard: giảm 1→0 trên đoạn q ∈ [1, OUTER_GUARD_END] → nền không
+                    // bị kéo theo má, chỉ dải sát viền mặt co giãn nhẹ.
+                    val o = ((OUTER_GUARD_END - q) / (OUTER_GUARD_END - 1f)).coerceIn(0f, 1f)
+                    val outerGuard = o * o * (3f - 2f * o)
+                    dx += toAxis * (strength * SLIM_MAX * radial * centerGuard * outerGuard)
                 }
             }
             verts[i] = baseX + dx
