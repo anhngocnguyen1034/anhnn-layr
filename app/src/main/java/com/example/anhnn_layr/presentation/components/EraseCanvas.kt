@@ -27,9 +27,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -37,11 +40,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.utils.BrushMode
 import com.example.anhnn_layr.utils.TouchPath
 
 private const val MIN_SCALE = 1f
 private const val MAX_SCALE = 5f
+
+// Kính lúp: phóng thêm LOUPE_FACTOR lần so với mức zoom đang xem.
+private const val LOUPE_FACTOR = 2f
+private val LOUPE_SIZE = 110.dp
+private val LOUPE_MARGIN = 12.dp
 
 @Composable
 fun EraseCanvas(
@@ -67,6 +76,8 @@ fun EraseCanvas(
     // càng sâu vẽ càng tinh. Giữ riêng cho nét đang vẽ + nét chờ bake để đổi cỡ cọ
     // giữa chừng không làm lệch lớp phủ.
     var strokeBrushSize by remember { mutableStateOf(brushSize) }
+    // Vị trí ngón (toạ độ bitmap) khi đang vẽ — null = không hiện kính lúp.
+    var fingerPos by remember { mutableStateOf<Offset?>(null) }
 
     val bmpW = workingBitmap.width.toFloat()
     val bmpH = workingBitmap.height.toFloat()
@@ -100,6 +111,7 @@ fun EraseCanvas(
                     val firstBmp = screenToBitmap(firstChange.position)
                     strokeBrushSize = (brushSize / scale).coerceAtLeast(1f)
                     lastPoint = firstBmp
+                    fingerPos = firstBmp
                     currentPath = Path().apply { moveTo(firstBmp.x, firstBmp.y) }
                     currentPoints.clear()
                     currentPoints.add(firstBmp)
@@ -115,6 +127,7 @@ fun EraseCanvas(
                             if (brushStarted) {
                                 currentPath = null
                                 brushStarted = false
+                                fingerPos = null
                             }
                             transforming = true
                             val zoom = event.calculateZoom()
@@ -141,6 +154,7 @@ fun EraseCanvas(
                             }
                             currentPoints.add(cur)
                             lastPoint = cur
+                            fingerPos = cur
                             ch.consume()
                         } else {
                             active.forEach { it.consume() }
@@ -162,6 +176,7 @@ fun EraseCanvas(
                     }
                     currentPath = null
                     currentPoints.clear()
+                    fingerPos = null
                 }
             },
     ) {
@@ -181,7 +196,83 @@ fun EraseCanvas(
             pendingPath?.let { drawStrokeOverlay(it, brushMode, brushColor, strokeBrushSize, originalImage, bmpIntSize) }
             currentPath?.let { drawStrokeOverlay(it, brushMode, brushColor, strokeBrushSize, originalImage, bmpIntSize) }
         }
+        // Kính lúp: ngón tay che mất điểm đang vẽ nên hiện vùng dưới ngón ở góc trên,
+        // phóng LOUPE_FACTOR lần so với mức zoom đang xem, kèm vòng tròn cỡ cọ.
+        fingerPos?.let { fp ->
+            drawLoupe(
+                finger = fp,
+                viewScale = scale * bmpToCanvas,
+                viewOffset = offset,
+                brushSizeBmp = strokeBrushSize,
+                workingImage = workingImage,
+                pendingPath = pendingPath,
+                currentPath = currentPath,
+                brushMode = brushMode,
+                brushColor = brushColor,
+                originalImage = originalImage,
+                bmpIntSize = bmpIntSize,
+            )
+        }
     }
+}
+
+/** Vẽ ô kính lúp ở góc trên, tự né sang góc đối diện khi ngón tay tới gần. */
+private fun DrawScope.drawLoupe(
+    finger: Offset,
+    viewScale: Float,
+    viewOffset: Offset,
+    brushSizeBmp: Float,
+    workingImage: ImageBitmap,
+    pendingPath: Path?,
+    currentPath: Path?,
+    brushMode: BrushMode,
+    brushColor: Color,
+    originalImage: ImageBitmap,
+    bmpIntSize: IntSize,
+) {
+    val loupeSize = LOUPE_SIZE.toPx()
+    val margin = LOUPE_MARGIN.toPx()
+    // Vị trí ngón trên màn hình để biết có đè lên ô lúp góc trái không.
+    val fingerScreen = finger * viewScale + viewOffset
+    val nearLeft = fingerScreen.x < margin * 2 + loupeSize && fingerScreen.y < margin * 2 + loupeSize
+    val left = if (nearLeft) size.width - margin - loupeSize else margin
+    val rect = Rect(Offset(left, margin), Size(loupeSize, loupeSize))
+    // bitmap → lúp: phóng thêm LOUPE_FACTOR lần so với mức đang xem.
+    val k = viewScale * LOUPE_FACTOR
+
+    clipRect(rect.left, rect.top, rect.right, rect.bottom) {
+        drawRect(color = Color.Black, topLeft = rect.topLeft, size = rect.size)
+        withTransform({
+            translate(
+                left = rect.center.x - finger.x * k,
+                top = rect.center.y - finger.y * k,
+            )
+            scale(k, k, pivot = Offset.Zero)
+        }) {
+            drawImage(
+                image = workingImage,
+                srcOffset = IntOffset.Zero,
+                srcSize = bmpIntSize,
+                dstOffset = IntOffset.Zero,
+                dstSize = bmpIntSize,
+            )
+            pendingPath?.let { drawStrokeOverlay(it, brushMode, brushColor, brushSizeBmp, originalImage, bmpIntSize) }
+            currentPath?.let { drawStrokeOverlay(it, brushMode, brushColor, brushSizeBmp, originalImage, bmpIntSize) }
+        }
+    }
+    // Vòng tròn cỡ cọ tại tâm lúp + viền ô.
+    drawCircle(
+        color = Color.White,
+        radius = brushSizeBmp * k / 2f,
+        center = rect.center,
+        style = Stroke(width = 1.5.dp.toPx()),
+    )
+    drawRect(
+        color = Color.White,
+        topLeft = rect.topLeft,
+        size = rect.size,
+        style = Stroke(width = 2.dp.toPx()),
+    )
 }
 
 /**
