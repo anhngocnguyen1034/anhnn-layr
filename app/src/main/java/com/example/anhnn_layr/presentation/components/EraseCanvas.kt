@@ -1,6 +1,7 @@
 package com.example.anhnn_layr.presentation.components
 
 import android.graphics.Bitmap
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -80,6 +82,7 @@ fun EraseCanvas(
     var strokeBrushSize by remember { mutableStateOf(brushSize) }
     // Vị trí ngón (toạ độ bitmap) khi đang vẽ — null = không hiện kính lúp.
     var fingerPos by remember { mutableStateOf<Offset?>(null) }
+    val view = LocalView.current
 
     val bmpW = workingBitmap.width.toFloat()
     val bmpH = workingBitmap.height.toFloat()
@@ -155,6 +158,11 @@ fun EraseCanvas(
                             active.forEach { it.consume() }
                         } else if (!transforming && brushStarted) {
                             val ch = active.first()
+                            // Rung nhẹ đúng 1 lần khi nét bắt đầu thực sự kéo (không rung
+                            // lúc đặt ngón để pinch zoom không bị rung oan).
+                            if (currentPoints.size == 1) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
                             val cur = screenToBitmap(ch.position)
                             val mid = Offset(
                                 (lastPoint.x + cur.x) / 2f,
@@ -174,12 +182,14 @@ fun EraseCanvas(
 
                     // Tap nhanh nhiều ngón, gần như không di chuyển → undo/redo.
                     if (maxPointers >= 2 && lastTime - downTime < 350 && multiMoved < 24f) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                         if (maxPointers == 2) onUndo() else onRedo()
                     }
 
                     if (brushStarted && currentPoints.isNotEmpty()) {
                         // Chuyển nét sang lớp phủ tạm trước khi xoá nét đang vẽ, để nét
                         // không biến mất trong lúc chờ workingBitmap được dựng lại.
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         pendingPath = currentPath
                         onCommitPath(
                             TouchPath(

@@ -1,6 +1,7 @@
 package com.example.anhnn_layr.presentation.components
 
 import android.graphics.Paint
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -20,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.drawTextStickers
 import com.example.anhnn_layr.utils.loadTypeface
@@ -31,6 +33,8 @@ import kotlin.math.sin
 private const val HANDLE_HIT_RADIUS = 60f
 private const val HANDLE_DRAW_RADIUS = 14f
 private const val BOX_PADDING = 16f
+// Xoay tới gần mốc vuông (0°/90°/180°/270°) trong ±SNAP_DEG thì hít vào mốc + rung nhẹ.
+private const val SNAP_DEG = 4f
 
 @Composable
 fun TextStickerLayer(
@@ -46,6 +50,7 @@ fun TextStickerLayer(
 ) {
     val selected = stickers.firstOrNull { it.id == selectedId }
     val context = LocalContext.current
+    val view = LocalView.current
     // Đọc sticker mới nhất trong cử chỉ mà không phải khởi động lại pointerInput
     // (nếu key theo rotation/scale/center, cử chỉ xoay sẽ bị huỷ giữa chừng).
     val selectedState = rememberUpdatedState(selected)
@@ -105,6 +110,11 @@ fun TextStickerLayer(
                                     (down.position.y - centerView.y).toDouble(),
                                     (down.position.x - centerView.x).toDouble(),
                                 )
+                                // Góc "thô" theo ngón tay, tách khỏi góc hiển thị (đã snap):
+                                // khi đang hít mốc, góc thô vẫn tích luỹ nên kéo tiếp quá
+                                // ngưỡng là thoát mốc mượt, không bị kẹt tại 90°.
+                                var rawRotation = sel.rotation
+                                var wasSnapped = false
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -115,9 +125,19 @@ fun TextStickerLayer(
                                     )
                                     val deltaDeg = Math.toDegrees(angle - lastAngle).toFloat()
                                     lastAngle = angle
-                                    if (deltaDeg != 0f) {
-                                        onTransform(sel.id, Offset.Zero, 1f, deltaDeg)
+                                    rawRotation += deltaDeg
+                                    val nearest = Math.round(rawRotation / 90f) * 90f
+                                    val snapped = kotlin.math.abs(rawRotation - nearest) <= SNAP_DEG
+                                    val target = if (snapped) nearest else rawRotation
+                                    val curRotation = selectedState.value?.rotation ?: break
+                                    val applied = target - curRotation
+                                    if (applied != 0f) {
+                                        onTransform(sel.id, Offset.Zero, 1f, applied)
                                     }
+                                    if (snapped && !wasSnapped) {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    wasSnapped = snapped
                                     change.consume()
                                 }
                             }
