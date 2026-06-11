@@ -18,15 +18,20 @@ import com.example.anhnn_layr.domain.usecases.ObserveDraftsUseCase
 import com.example.anhnn_layr.domain.usecases.RemoveBackgroundUseCase
 import com.example.anhnn_layr.domain.usecases.SaveDraftUseCase
 import com.example.anhnn_layr.utils.BrushMode
+import com.example.anhnn_layr.utils.ColorPreset
 import com.example.anhnn_layr.utils.GalleryPhoto
 import com.example.anhnn_layr.utils.TouchPath
 import com.example.anhnn_layr.utils.TextSticker
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.applyEyeEnlarge
 import com.example.anhnn_layr.utils.applyFaceSlim
+import com.example.anhnn_layr.utils.applySkinBrighten
 import com.example.anhnn_layr.utils.applySkinSmoothing
+import com.example.anhnn_layr.utils.applyBlush
 import com.example.anhnn_layr.utils.applyFeather
-import com.example.anhnn_layr.utils.applyLipColor
+import com.example.anhnn_layr.utils.applyLipstick
+import com.example.anhnn_layr.utils.applyTeethWhiten
+import com.example.anhnn_layr.utils.BLUSH_PINK
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.FaceLandmarks
 import com.example.anhnn_layr.utils.LIP_PINK
@@ -71,6 +76,16 @@ sealed interface RembgUiState {
 
 enum class EditorTool { BACKGROUND, ERASE, FACE, EFFECTS, CROP, TEXT }
 
+// Preset "Làm đẹp tự động" — mức nhẹ tự nhiên (như chế độ auto của các app beauty),
+// người dùng tinh chỉnh tiếp bằng slider từng mục nếu muốn.
+private const val AUTO_EYE_ENLARGE = 0.15f
+private const val AUTO_LIP_COLOR = 0.25f
+private const val AUTO_TEETH_WHITEN = 0.3f
+private const val AUTO_BLUSH = 0.2f
+private const val AUTO_FACE_SLIM = 0.2f
+private const val AUTO_SKIN_SMOOTH = 0.4f
+private const val AUTO_SKIN_BRIGHTEN = 0.15f
+
 data class EditorState(
     val selectedColor: Color = Color.Transparent,
     val activeTool: EditorTool = EditorTool.BACKGROUND,
@@ -91,15 +106,25 @@ data class EditorState(
     val brightness: Float = 0f,
     val contrast: Float = 0f,
     val saturation: Float = 0f,
+    // Bộ lọc màu preset (tab FX) — áp bằng ColorFilter như brightness/contrast/saturation.
+    val colorPreset: ColorPreset = ColorPreset.NONE,
     // Chỉnh mặt: cường độ phóng to mắt (0..1). null = chưa dò mặt; true/false = có/không
     // tìm thấy khuôn mặt (để UI báo trạng thái).
     val eyeEnlarge: Float = 0f,
-    // Cường độ tô màu môi hồng (0..1).
+    // Cường độ tô son môi (0..1).
     val lipColor: Float = 0f,
+    // Màu son đang chọn (từ bảng LIP_PALETTE).
+    val lipShade: Color = Color(LIP_PINK),
+    // Cường độ làm trắng răng (0..1).
+    val teethWhiten: Float = 0f,
+    // Cường độ đánh má hồng (0..1).
+    val blush: Float = 0f,
     // Cường độ bóp thon gọn mặt / V-line (0..1).
     val faceSlim: Float = 0f,
     // Cường độ làm mịn da (0..1).
     val skinSmooth: Float = 0f,
+    // Cường độ sáng da / trắng da (0..1).
+    val skinBrighten: Float = 0f,
     val faceDetected: Boolean? = null,
     val textStickers: List<TextSticker> = emptyList(),
     val selectedTextStickerId: String? = null,
@@ -108,7 +133,22 @@ data class EditorState(
     // Cắt ảnh: tỉ lệ khung đang chọn (null = tự do) và khung cắt tương tác hiện tại.
     val cropAspect: Float? = null,
     val cropFrame: CropFrame? = null,
-)
+) {
+    /** true khi các giá trị chỉnh mặt đang đúng bằng preset auto (nút "Tự động" sáng). */
+    val isAutoBeauty: Boolean
+        get() = eyeEnlarge == AUTO_EYE_ENLARGE &&
+            lipColor == AUTO_LIP_COLOR &&
+            teethWhiten == AUTO_TEETH_WHITEN &&
+            blush == AUTO_BLUSH &&
+            faceSlim == AUTO_FACE_SLIM &&
+            skinSmooth == AUTO_SKIN_SMOOTH &&
+            skinBrighten == AUTO_SKIN_BRIGHTEN
+
+    /** true khi có ít nhất một hiệu ứng chỉnh mặt đang bật (cần landmarks để render). */
+    val hasFaceAdjustments: Boolean
+        get() = eyeEnlarge > 0f || lipColor > 0f || teethWhiten > 0f || blush > 0f ||
+            faceSlim > 0f || skinSmooth > 0f || skinBrighten > 0f
+}
 
 @HiltViewModel
 class RembgViewModel @Inject constructor(
@@ -270,6 +310,9 @@ class RembgViewModel @Inject constructor(
             )
             _editor.value = snapshot.editorState.toEditorState(paths = snapshot.touchPaths)
             subjectTrigger.trySend(true)
+            // Bản nháp có chỉnh mặt: dò lại landmarks ngay (không đợi mở tab "Mặt") —
+            // dò xong ensureFaceDetection sẽ tự recompose để render lại hiệu ứng.
+            if (_editor.value.hasFaceAdjustments) ensureFaceDetection()
         }
     }
 
@@ -303,6 +346,10 @@ class RembgViewModel @Inject constructor(
             }
             faceLandmarks = found
             _editor.update { it.copy(faceDetected = found != null) }
+            // Đang có hiệu ứng mặt chờ landmarks (vd mở bản nháp) → render lại ngay.
+            if (found != null && _editor.value.hasFaceAdjustments) {
+                recomposeSubject(rebuildWorking = false)
+            }
         }
     }
 
@@ -316,6 +363,27 @@ class RembgViewModel @Inject constructor(
         recomposeSubject(rebuildWorking = false)
     }
 
+    fun setTeethWhiten(value: Float) {
+        _editor.update { it.copy(teethWhiten = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setBlush(value: Float) {
+        _editor.update { it.copy(blush = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /** Chọn màu son. Nếu cường độ đang 0 thì nâng lên mức vừa để thấy ngay hiệu ứng. */
+    fun setLipShade(color: Color) {
+        _editor.update {
+            it.copy(
+                lipShade = color,
+                lipColor = if (it.lipColor > 0f) it.lipColor else 0.5f,
+            )
+        }
+        recomposeSubject(rebuildWorking = false)
+    }
+
     fun setFaceSlim(value: Float) {
         _editor.update { it.copy(faceSlim = value) }
         recomposeSubject(rebuildWorking = false)
@@ -323,6 +391,38 @@ class RembgViewModel @Inject constructor(
 
     fun setSkinSmooth(value: Float) {
         _editor.update { it.copy(skinSmooth = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    fun setSkinBrighten(value: Float) {
+        _editor.update { it.copy(skinBrighten = value) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /**
+     * Bật/tắt "Làm đẹp tự động": đặt cả 6 giá trị chỉnh mặt về preset trong MỘT update
+     * (1 lần recompose); bấm lần nữa khi đang đúng preset → trả tất cả về 0.
+     */
+    fun toggleAutoBeauty() {
+        _editor.update {
+            if (it.isAutoBeauty) it.copy(
+                eyeEnlarge = 0f,
+                lipColor = 0f,
+                teethWhiten = 0f,
+                blush = 0f,
+                faceSlim = 0f,
+                skinSmooth = 0f,
+                skinBrighten = 0f,
+            ) else it.copy(
+                eyeEnlarge = AUTO_EYE_ENLARGE,
+                lipColor = AUTO_LIP_COLOR,
+                teethWhiten = AUTO_TEETH_WHITEN,
+                blush = AUTO_BLUSH,
+                faceSlim = AUTO_FACE_SLIM,
+                skinSmooth = AUTO_SKIN_SMOOTH,
+                skinBrighten = AUTO_SKIN_BRIGHTEN,
+            )
+        }
         recomposeSubject(rebuildWorking = false)
     }
     fun setBrushMode(mode: BrushMode) = _editor.update { it.copy(brushMode = mode) }
@@ -341,6 +441,8 @@ class RembgViewModel @Inject constructor(
     fun setContrast(value: Float) = _editor.update { it.copy(contrast = value) }
 
     fun setSaturation(value: Float) = _editor.update { it.copy(saturation = value) }
+
+    fun setColorPreset(preset: ColorPreset) = _editor.update { it.copy(colorPreset = preset) }
 
     fun useOriginalAsBackground() {
         val orig = originalBitmap ?: return
@@ -645,12 +747,26 @@ class RembgViewModel @Inject constructor(
             // Mịn da TRƯỚC khi warp: mặt nạ dùng toạ độ landmark khớp với working chưa
             // biến dạng (eye/slim warp sau đó chỉ biến hình lại lớp da đã mịn).
             val smoothed = applySkinSmoothing(working, faceLandmarks?.allPoints.orEmpty(), ed.skinSmooth)
-            val faced = applyEyeEnlarge(smoothed, faceLandmarks, ed.eyeEnlarge)
+            // Sáng da sau mịn (cùng mặt nạ, toạ độ landmark chưa biến dạng), trước warp.
+            val brightened = applySkinBrighten(smoothed, faceLandmarks?.allPoints.orEmpty(), ed.skinBrighten)
+            // Má hồng TRƯỚC warp: vùng má bị thon mặt kéo dịch, đánh trước để lớp phấn
+            // biến dạng đồng bộ với da (không lệch vị trí như nếu vẽ sau).
+            val blushed = applyBlush(brightened, faceLandmarks?.allPoints.orEmpty(), BLUSH_PINK, ed.blush)
+            val faced = applyEyeEnlarge(blushed, faceLandmarks, ed.eyeEnlarge)
             // Bóp thon mặt: hút viền má vào trục giữa (centerGuard giữ vùng miệng nguyên).
             val slimmed = applyFaceSlim(faced, faceLandmarks, ed.faceSlim)
-            // Tô môi sau warp (mắt + má warp cục bộ không làm môi dịch nên toạ độ vẫn đúng).
-            val painted = applyLipColor(slimmed, faceLandmarks?.lipOutline, LIP_PINK, ed.lipColor)
-            val display = applyFeather(painted, ed.featherRadius)
+            // Tô son sau warp (mắt + má warp cục bộ không làm môi dịch nên toạ độ vẫn đúng).
+            // applyLipstick đục lỗ môi trong (không tô răng) + blend giữ texture môi gốc.
+            val painted = applyLipstick(
+                slimmed,
+                faceLandmarks?.allPoints.orEmpty(),
+                ed.lipShade.toArgb(),
+                ed.lipColor,
+            )
+            // Răng trắng dùng đúng đa giác môi trong mà son đục lỗ → hai vùng không
+            // chồng nhau, thứ tự son/răng không ảnh hưởng kết quả.
+            val whitened = applyTeethWhiten(painted, faceLandmarks?.allPoints.orEmpty(), ed.teethWhiten)
+            val display = applyFeather(whitened, ed.featherRadius)
             working to display
         }
         val now = _state.value
@@ -696,6 +812,15 @@ private fun EditorState.toSnapshot(): EditorStateSnapshot = EditorStateSnapshot(
     textStickers = textStickers.map { it.toSnapshot() },
     selectedTextStickerId = selectedTextStickerId,
     isBackgroundRemoved = isBackgroundRemoved,
+    colorPreset = colorPreset.name,
+    eyeEnlarge = eyeEnlarge,
+    lipColor = lipColor,
+    lipShadeArgb = lipShade.toArgb().toLong() and 0xFFFFFFFFL,
+    teethWhiten = teethWhiten,
+    blush = blush,
+    faceSlim = faceSlim,
+    skinSmooth = skinSmooth,
+    skinBrighten = skinBrighten,
 )
 
 private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorState {
@@ -723,6 +848,17 @@ private fun EditorStateSnapshot.toEditorState(paths: List<TouchPath>): EditorSta
     textStickers = textStickers.orEmpty().map { it.toTextSticker() },
     selectedTextStickerId = selectedTextStickerId,
     isBackgroundRemoved = bgRemoved,
+    colorPreset = colorPreset
+        ?.let { runCatching { ColorPreset.valueOf(it) }.getOrNull() }
+        ?: ColorPreset.NONE,
+    eyeEnlarge = eyeEnlarge ?: 0f,
+    lipColor = lipColor ?: 0f,
+    lipShade = lipShadeArgb?.let { Color(it.toInt()) } ?: Color(LIP_PINK),
+    teethWhiten = teethWhiten ?: 0f,
+    blush = blush ?: 0f,
+    faceSlim = faceSlim ?: 0f,
+    skinSmooth = skinSmooth ?: 0f,
+    skinBrighten = skinBrighten ?: 0f,
     )
 }
 

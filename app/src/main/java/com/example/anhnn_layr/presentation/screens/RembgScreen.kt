@@ -112,6 +112,10 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
                 showCamera = false
                 showGallery = true // mở thư viện để chọn ảnh vừa chụp
             },
+            onOpenGallery = {
+                showCamera = false
+                showGallery = true // chạm thumbnail ảnh gần nhất -> mở thư viện
+            },
             onBack = { showCamera = false },
         )
         return
@@ -194,10 +198,16 @@ fun RembgScreen(vm: RembgViewModel = hiltViewModel()) {
             onBrightnessChange = vm::setBrightness,
             onContrastChange = vm::setContrast,
             onSaturationChange = vm::setSaturation,
+            onColorPresetChange = vm::setColorPreset,
+            onAutoBeautyToggle = vm::toggleAutoBeauty,
             onEyeEnlargeChange = vm::setEyeEnlarge,
             onLipColorChange = vm::setLipColor,
+            onLipShadeChange = vm::setLipShade,
+            onTeethWhitenChange = vm::setTeethWhiten,
+            onBlushChange = vm::setBlush,
             onFaceSlimChange = vm::setFaceSlim,
             onSkinSmoothChange = vm::setSkinSmooth,
+            onSkinBrightenChange = vm::setSkinBrighten,
             onSelectCropAspect = vm::setCropAspect,
             onApplyCrop = vm::applyCrop,
             onResetCrop = vm::resetCrop,

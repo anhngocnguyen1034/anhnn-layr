@@ -6,17 +6,22 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +33,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -37,7 +43,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Cameraswitch
+import androidx.compose.material.icons.outlined.FlashAuto
+import androidx.compose.material.icons.outlined.FlashOff
+import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.TimerOff
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.AlertDialog
@@ -58,14 +68,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -77,20 +91,27 @@ import com.example.anhnn_layr.presentation.components.AnhnnGradientButton
 import com.example.anhnn_layr.presentation.components.CustomZoomSlider
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleDark
 import com.example.anhnn_layr.presentation.theme.AnhnnPurpleGradient
+import com.example.anhnn_layr.utils.GalleryPhoto
+import com.example.anhnn_layr.utils.queryCapturedPhotos
 import com.example.anhnn_layr.utils.saveCaptureToGallery
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Màn chụp ảnh trong app (CameraX). Sau khi chụp sẽ hiện preview để người dùng
  * chọn "Chụp lại" hoặc "Dùng ảnh". Bấm "Dùng ảnh" sẽ lưu ảnh vào thư viện ảnh
- * của máy rồi gọi [onPhotoSaved] (để mở màn Thư viện).
+ * của máy rồi gọi [onPhotoSaved] (để mở màn Thư viện). [onOpenGallery] được gọi
+ * khi chạm vào thumbnail ảnh gần nhất cạnh nút chụp.
  */
 @Composable
 fun CameraCaptureScreen(
     onPhotoSaved: () -> Unit,
+    onOpenGallery: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -216,6 +237,7 @@ fun CameraCaptureScreen(
 
     LiveCamera(
         onCaptured = { capturedFile = it },
+        onOpenGallery = onOpenGallery,
         onBack = onBack,
     )
 }
@@ -223,10 +245,12 @@ fun CameraCaptureScreen(
 @Composable
 private fun LiveCamera(
     onCaptured: (File) -> Unit,
+    onOpenGallery: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     var lensFacing by rememberSaveable { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
     val previewView = remember {
@@ -243,6 +267,51 @@ private fun LiveCamera(
     // Vị trí thanh kéo (0f..1f): setLinearZoom map tuyến tính theo góc nhìn, mượt
     // hơn so với set thẳng zoomRatio. Giữ lại khi xoay máy / đổi ống kính.
     var linearZoom by rememberSaveable { mutableStateOf(0f) }
+    // Chế độ flash khi chụp (OFF/AUTO/ON) — giữ lại khi xoay máy / đổi ống kính.
+    var flashMode by rememberSaveable { mutableStateOf(ImageCapture.FLASH_MODE_OFF) }
+    // Ống kính hiện tại có đèn flash không (camera trước thường không) → ẩn nút.
+    val hasFlashUnit = camera?.cameraInfo?.hasFlashUnit() == true
+    val isFrontLens = lensFacing == CameraSelector.LENS_FACING_FRONT
+    // "Flash màn hình" cho selfie: camera trước không có đèn nên khi bật, lúc chụp
+    // toàn màn hình lóe trắng + độ sáng đẩy tối đa để rọi sáng khuôn mặt.
+    var screenFlashOn by rememberSaveable { mutableStateOf(false) }
+    // true trong lúc đang lóe trắng chờ chụp.
+    var screenFlashActive by remember { mutableStateOf(false) }
+    // Hẹn giờ chụp: 0 = tắt, 3 hoặc 10 giây — giữ qua xoay máy / đổi ống kính.
+    var timerSeconds by rememberSaveable { mutableStateOf(0) }
+    // Số giây còn lại đang đếm ngược (0 = không đếm) + job để huỷ giữa chừng.
+    var countdown by remember { mutableStateOf(0) }
+    var countdownJob by remember { mutableStateOf<Job?>(null) }
+
+    // Đẩy/trả độ sáng màn hình theo trạng thái lóe. onDispose trả về mặc định phòng
+    // trường hợp rời màn giữa chừng (chụp xong là rời composition ngay).
+    val activity = context as? Activity
+    LaunchedEffect(screenFlashActive) {
+        val window = activity?.window ?: return@LaunchedEffect
+        window.attributes = window.attributes.apply {
+            screenBrightness = if (screenFlashActive) 1f
+            else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            val window = activity?.window ?: return@onDispose
+            window.attributes = window.attributes.apply {
+                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            }
+        }
+    }
+    // Điểm vừa chạm lấy nét (toạ độ pixel trên preview) — null khi không hiện vòng nét.
+    var focusPoint by remember { mutableStateOf<Offset?>(null) }
+    // Ảnh chụp gần nhất trong Pictures/AnhnnLayr — thumbnail cạnh nút chụp, chạm mở
+    // thư viện. LiveCamera rời composition khi sang màn xem ảnh nên quay lại sẽ tự
+    // load lại (ảnh vừa chụp xong hiện ngay).
+    var latestPhoto by remember { mutableStateOf<GalleryPhoto?>(null) }
+    LaunchedEffect(Unit) {
+        latestPhoto = withContext(Dispatchers.IO) {
+            runCatching { queryCapturedPhotos(context).firstOrNull() }.getOrNull()
+        }
+    }
 
     DisposableEffect(lensFacing) {
         val future = ProcessCameraProvider.getInstance(context)
@@ -268,7 +337,12 @@ private fun LiveCamera(
         camera?.cameraControl?.setLinearZoom(linearZoom)
     }
 
-    val takePhoto = takePhoto@{
+    // Áp chế độ flash lên use case chụp — có hiệu lực ngay lần takePicture kế tiếp.
+    LaunchedEffect(flashMode) {
+        imageCapture.flashMode = flashMode
+    }
+
+    val capture = {
         val dir = File(context.cacheDir, "captures").apply { mkdirs() }
         val file = File(dir, "camera_${System.currentTimeMillis()}.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file).build()
@@ -277,10 +351,12 @@ private fun LiveCamera(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    screenFlashActive = false
                     onCaptured(file)
                 }
 
                 override fun onError(exc: ImageCaptureException) {
+                    screenFlashActive = false
                     Toast.makeText(
                         context,
                         "Không chụp được ảnh: ${exc.message}",
@@ -289,6 +365,41 @@ private fun LiveCamera(
                 }
             },
         )
+    }
+    // Nhả cò thật sự: qua lóe màn hình (selfie) hoặc chụp thẳng.
+    val fireCapture = {
+        if (isFrontLens && screenFlashOn) {
+            // Lóe trắng + sáng tối đa, chờ một nhịp cho màn hình rọi lên mặt và AE
+            // thích ứng rồi mới chụp; tắt lóe trong callback chụp xong/ lỗi.
+            scope.launch {
+                screenFlashActive = true
+                delay(400)
+                capture()
+            }
+        } else {
+            capture()
+        }
+        Unit
+    }
+    val takePhoto = takePhoto@{
+        // Đang đếm ngược → bấm nút chụp lần nữa là HUỶ hẹn giờ.
+        if (countdown > 0) {
+            countdownJob?.cancel()
+            countdown = 0
+            return@takePhoto
+        }
+        if (timerSeconds > 0) {
+            countdownJob = scope.launch {
+                countdown = timerSeconds
+                while (countdown > 0) {
+                    delay(1000)
+                    countdown--
+                }
+                fireCapture()
+            }
+        } else {
+            fireCapture()
+        }
         Unit
     }
 
@@ -303,8 +414,32 @@ private fun LiveCamera(
                     detectTransformGestures { _, _, zoom, _ ->
                         linearZoom = (linearZoom + (zoom - 1f) * 0.5f).coerceIn(0f, 1f)
                     }
+                }
+                // Chạm để lấy nét + đo sáng tại điểm chạm. meteringPointFactory tự quy
+                // đổi toạ độ view → toạ độ sensor (đúng cả khi đang zoom/lật ống kính).
+                // FocusMeteringAction mặc định tự huỷ sau ~5s, trả về lấy nét liên tục.
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val cam = camera ?: return@detectTapGestures
+                        val point = previewView.meteringPointFactory
+                            .createPoint(offset.x, offset.y)
+                        runCatching {
+                            cam.cameraControl.startFocusAndMetering(
+                                FocusMeteringAction.Builder(point).build(),
+                            )
+                        }
+                        focusPoint = offset
+                    }
                 },
         )
+
+        // Vòng lấy nét tại điểm chạm: co nhẹ vào rồi tự biến mất.
+        focusPoint?.let { point ->
+            FocusRing(
+                position = point,
+                onFinished = { focusPoint = null },
+            )
+        }
 
         CircleIconButton(
             icon = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -315,6 +450,69 @@ private fun LiveCamera(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(16.dp),
         )
+
+        // Cột nút góc trên-phải: flash (đèn thật / flash màn hình) + hẹn giờ.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Nút flash: ống kính có đèn → xoay vòng Tắt/Tự động/Bật; camera trước
+            // không đèn → công tắc "flash màn hình" Tắt/Bật.
+            if (hasFlashUnit) {
+                CircleIconButton(
+                    icon = when (flashMode) {
+                        ImageCapture.FLASH_MODE_ON -> Icons.Outlined.FlashOn
+                        ImageCapture.FLASH_MODE_AUTO -> Icons.Outlined.FlashAuto
+                        else -> Icons.Outlined.FlashOff
+                    },
+                    contentDescription = when (flashMode) {
+                        ImageCapture.FLASH_MODE_ON -> "Flash: bật"
+                        ImageCapture.FLASH_MODE_AUTO -> "Flash: tự động"
+                        else -> "Flash: tắt"
+                    },
+                    onClick = {
+                        flashMode = when (flashMode) {
+                            ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                            ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                            else -> ImageCapture.FLASH_MODE_OFF
+                        }
+                    },
+                )
+            } else if (isFrontLens) {
+                CircleIconButton(
+                    icon = if (screenFlashOn) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
+                    contentDescription = if (screenFlashOn) "Flash màn hình: bật" else "Flash màn hình: tắt",
+                    onClick = { screenFlashOn = !screenFlashOn },
+                )
+            }
+
+            // Nút hẹn giờ: xoay vòng Tắt → 3s → 10s.
+            TimerButton(
+                timerSeconds = timerSeconds,
+                onClick = {
+                    timerSeconds = when (timerSeconds) {
+                        0 -> 3
+                        3 -> 10
+                        else -> 0
+                    }
+                },
+            )
+        }
+
+        // Số đếm ngược to giữa màn hình khi đang hẹn giờ.
+        if (countdown > 0) {
+            Text(
+                text = countdown.toString(),
+                color = Color.White,
+                fontSize = 96.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -337,8 +535,23 @@ private fun LiveCamera(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Spacer giữ nút chụp ở chính giữa.
-                Box(modifier = Modifier.size(52.dp))
+                // Thumbnail ảnh gần nhất — chạm mở thư viện. Chưa có ảnh nào thì là
+                // ô trống cùng cỡ để nút chụp vẫn ở chính giữa.
+                val latest = latestPhoto
+                if (latest != null) {
+                    AsyncImage(
+                        model = latest.uri,
+                        contentDescription = "Ảnh gần nhất — mở thư viện",
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.5.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
+                            .clickable(onClick = onOpenGallery),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Box(modifier = Modifier.size(52.dp))
+                }
 
                 ShutterButton(onClick = takePhoto)
 
@@ -355,6 +568,94 @@ private fun LiveCamera(
                 )
             }
         }
+
+        // Lớp lóe trắng "flash màn hình" — vẽ TRÊN CÙNG, phủ cả nút bấm trong lúc
+        // chờ chụp để ánh sáng màn hình rọi tối đa lên khuôn mặt.
+        if (screenFlashActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White),
+            )
+        }
+    }
+}
+
+/**
+ * Nút hẹn giờ chụp: tắt → icon đồng hồ gạch chéo; 3s/10s → hiện thẳng chữ "3s"/"10s"
+ * để khỏi đoán nghĩa icon. Cùng cỡ và nền với [CircleIconButton].
+ */
+@Composable
+private fun TimerButton(
+    timerSeconds: Int,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (timerSeconds == 0) {
+            Icon(
+                imageVector = Icons.Outlined.TimerOff,
+                contentDescription = "Hẹn giờ: tắt",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp),
+            )
+        } else {
+            Text(
+                text = "${timerSeconds}s",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
+    }
+}
+
+// Đường kính vòng lấy nét.
+private val FOCUS_RING_SIZE = 64.dp
+
+/**
+ * Vòng lấy nét tại [position] (tâm vòng = điểm chạm): xuất hiện hơi to rồi co về
+ * kích thước thật (180ms), giữ ~600ms rồi gọi [onFinished] để ẩn. Chạm điểm mới khi
+ * vòng cũ còn hiện sẽ restart animation nhờ key theo [position].
+ */
+@Composable
+private fun FocusRing(
+    position: Offset,
+    onFinished: () -> Unit,
+) {
+    val scale = remember(position) { Animatable(1.35f) }
+    LaunchedEffect(position) {
+        scale.animateTo(1f, animationSpec = tween(durationMillis = 180))
+        delay(600)
+        onFinished()
+    }
+    Box(
+        modifier = Modifier
+            .offset {
+                val half = (FOCUS_RING_SIZE.toPx() / 2f).roundToInt()
+                IntOffset(position.x.roundToInt() - half, position.y.roundToInt() - half)
+            }
+            .size(FOCUS_RING_SIZE)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
+            .border(2.dp, Color.White, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Chấm tâm nhỏ cho dễ thấy điểm nét giữa khung hình sáng.
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
     }
 }
 
