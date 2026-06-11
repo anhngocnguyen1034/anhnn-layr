@@ -140,8 +140,17 @@ private const val SKIN_SOFT = 10
 // Nửa bề rộng cửa sổ Cb/Cr quanh màu da lấy mẫu (đủ chứa biến thiên má hồng/bóng đổ).
 private const val SKIN_WIN_HALF = 18
 // Điểm lấy mẫu màu da: táo má phải (205), táo má trái (425), giữa hai chân mày (151)
-// — các vị trí gần như luôn là da trần, ít khi bị tóc che cả ba cùng lúc.
+// — các vị trí gần như luôn là da trần, ít khi bị tóc che cả ba cùng lúc. Mỗi điểm
+// tính trung bình RIÊNG rồi lấy median giữa các điểm: một điểm lỡ dính tóc mái/bóng
+// đổ sẽ bị loại như outlier thay vì kéo lệch cả cửa sổ.
 private val SKIN_SAMPLE_IDS = intArrayOf(205, 425, 151)
+// Cổng độ sáng: tóc nâu/đen có sắc độ ấm gần giống da nên Cb/Cr không phân biệt được,
+// nhưng tóc TỐI hơn da nhiều. Pixel tối hơn luma da mẫu quá [SKIN_Y_DROP] → không phải
+// da; mép chuyển tiếp mềm rộng [SKIN_Y_SOFT] để bóng đổ trên mặt không bị viền cứng.
+private const val SKIN_Y_DROP = 64
+private const val SKIN_Y_SOFT = 28
+// Tối thiểu số pixel mẫu hợp lệ để một điểm lấy mẫu được tính.
+private const val SKIN_SAMPLE_MIN = 8
 
 /**
  * Sáng da / trắng da từ 468 điểm Face Mesh. Dùng CHUNG mặt nạ da với [applySkinSmoothing]
@@ -222,36 +231,55 @@ private fun softRange256(v: Int, lo: Int, hi: Int): Int = when {
 // Sắc độ YCbCr (BT.601, xấp xỉ số nguyên) — đi cùng các dải SKIN_* ở trên.
 private fun cbOf(r: Int, g: Int, b: Int): Int = 128 + ((-38 * r - 74 * g + 112 * b) shr 8)
 private fun crOf(r: Int, g: Int, b: Int): Int = 128 + ((112 * r - 94 * g - 18 * b) shr 8)
+private fun yOf(r: Int, g: Int, b: Int): Int = (77 * r + 150 * g + 29 * b) shr 8
 
-/** Cửa sổ Cb/Cr "đây là da của khuôn mặt này" — dùng chung cho mịn da & sáng da. */
+/**
+ * Cửa sổ Cb/Cr + sàn độ sáng "đây là da của khuôn mặt này" — dùng chung cho mịn da &
+ * sáng da. [yLo] = 0 tắt cổng độ sáng (fallback khi không lấy mẫu được luma da).
+ */
 private class SkinGate(
     private val cbLo: Int,
     private val cbHi: Int,
     private val crLo: Int,
     private val crHi: Int,
+    private val yLo: Int = 0,
 ) {
     /** Trọng số 0..256: pixel càng đúng màu da càng gần 256. */
-    fun weight256(r: Int, g: Int, b: Int): Int =
-        softRange256(cbOf(r, g, b), cbLo, cbHi) * softRange256(crOf(r, g, b), crLo, crHi) shr 8
+    fun weight256(r: Int, g: Int, b: Int): Int {
+        var w = softRange256(cbOf(r, g, b), cbLo, cbHi) * softRange256(crOf(r, g, b), crLo, crHi) shr 8
+        if (w > 0 && yLo > 0) {
+            // Cổng độ sáng: tóc sẫm cùng sắc độ ấm với da nhưng tối hơn nhiều → loại.
+            val y = yOf(r, g, b)
+            if (y < yLo - SKIN_Y_SOFT) return 0
+            if (y < yLo) w = w * (y - (yLo - SKIN_Y_SOFT)) / SKIN_Y_SOFT
+        }
+        return w
+    }
 }
 
 /**
  * Dựng [SkinGate] THÍCH ỨNG với chính khuôn mặt trong ảnh: lấy mẫu màu quanh
- * [SKIN_SAMPLE_IDS] (má 2 bên + giữa trán), lấy trung bình Cb/Cr làm tâm cửa sổ
- * ±[SKIN_WIN_HALF] — ảnh đèn vàng/lạnh đều bám đúng màu da thật thay vì dải cố định.
- * Tâm bị kẹp trong dải hợp lý của da người để mẫu lỡ dính tóc không phá cửa sổ;
- * không đủ mẫu (mặt sát mép ảnh, vùng mẫu trong suốt) → fallback dải kinh điển.
+ * [SKIN_SAMPLE_IDS] (má 2 bên + giữa trán), mỗi điểm tính trung bình Cb/Cr/Y riêng rồi
+ * lấy MEDIAN giữa các điểm làm tâm cửa sổ ±[SKIN_WIN_HALF] — điểm trán lỡ rơi vào tóc
+ * mái (tối, lệch sắc độ) bị loại như outlier thay vì kéo lệch cửa sổ làm tóc được mịn
+ * còn da thật thì không. Median luma cũng cho sàn sáng [SKIN_Y_DROP] để chặn tóc sẫm
+ * cùng sắc độ. Không đủ điểm mẫu (mặt sát mép ảnh, vùng mẫu trong suốt) → fallback dải
+ * kinh điển, tắt cổng độ sáng.
  */
 private fun buildSkinGate(src: Bitmap, pts: List<FaceMeshPoint>, faceWidth: Float): SkinGate {
-    var sumCb = 0L
-    var sumCr = 0L
-    var n = 0
+    val cbs = ArrayList<Int>(SKIN_SAMPLE_IDS.size)
+    val crs = ArrayList<Int>(SKIN_SAMPLE_IDS.size)
+    val ys = ArrayList<Int>(SKIN_SAMPLE_IDS.size)
     val radius = (faceWidth * 0.02f).toInt().coerceIn(2, 24)
     for (id in SKIN_SAMPLE_IDS) {
         if (id >= pts.size) continue
         val p = pts[id].position
         val cx = p.x.toInt()
         val cy = p.y.toInt()
+        var sumCb = 0L
+        var sumCr = 0L
+        var sumY = 0L
+        var n = 0
         var y = cy - radius
         while (y <= cy + radius) {
             var x = cx - radius
@@ -264,6 +292,7 @@ private fun buildSkinGate(src: Bitmap, pts: List<FaceMeshPoint>, faceWidth: Floa
                         val b = px and 0xFF
                         sumCb += cbOf(r, g, b)
                         sumCr += crOf(r, g, b)
+                        sumY += yOf(r, g, b)
                         n++
                     }
                 }
@@ -271,16 +300,31 @@ private fun buildSkinGate(src: Bitmap, pts: List<FaceMeshPoint>, faceWidth: Floa
             }
             y += 2
         }
+        if (n >= SKIN_SAMPLE_MIN) {
+            cbs += (sumCb / n).toInt()
+            crs += (sumCr / n).toInt()
+            ys += (sumY / n).toInt()
+        }
     }
-    if (n < 16) return SkinGate(SKIN_CB_LO, SKIN_CB_HI, SKIN_CR_LO, SKIN_CR_HI)
-    val cb = (sumCb / n).toInt().coerceIn(60, 140)
-    val cr = (sumCr / n).toInt().coerceIn(120, 185)
+    if (cbs.size < 2) return SkinGate(SKIN_CB_LO, SKIN_CB_HI, SKIN_CR_LO, SKIN_CR_HI)
+    val cb = medianOf(cbs).coerceIn(60, 140)
+    val cr = medianOf(crs).coerceIn(120, 185)
+    val skinY = medianOf(ys)
     return SkinGate(
         cbLo = cb - SKIN_WIN_HALF,
         cbHi = cb + SKIN_WIN_HALF,
         crLo = cr - SKIN_WIN_HALF,
         crHi = cr + SKIN_WIN_HALF,
+        // Sàn không xuống dưới một mức tối thiểu để ảnh thiếu sáng không tắt hẳn cổng.
+        yLo = (skinY - SKIN_Y_DROP).coerceAtLeast(24),
     )
+}
+
+/** Median của danh sách nhỏ (2–3 phần tử): 2 → trung bình, lẻ → phần tử giữa. */
+private fun medianOf(values: List<Int>): Int {
+    val sorted = values.sorted()
+    val mid = sorted.size / 2
+    return if (sorted.size % 2 == 0) (sorted[mid - 1] + sorted[mid]) / 2 else sorted[mid]
 }
 
 /** Khung bao khuôn mặt + mặt nạ da — phần dùng chung của mịn da và sáng da. */
