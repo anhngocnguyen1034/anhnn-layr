@@ -83,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.components.CropOverlay
 import com.example.anhnn_layr.presentation.components.EraseCanvas
+import com.example.anhnn_layr.presentation.components.SkinRegionCanvas
 import com.example.anhnn_layr.presentation.components.TextStickerLayer
 import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
 import com.example.anhnn_layr.presentation.components.tools.CropToolPanel
@@ -133,6 +134,9 @@ fun EditorScreen(
     onFaceSlimChange: (Float) -> Unit,
     onSkinSmoothChange: (Float) -> Unit,
     onSkinBrightenChange: (Float) -> Unit,
+    onSkinRegionToggle: () -> Unit,
+    onSkinRegionClear: () -> Unit,
+    onSkinRegionPath: (TouchPath) -> Unit,
     onSelectCropAspect: (Float?) -> Unit,
     onApplyCrop: () -> Unit,
     onResetCrop: () -> Unit,
@@ -237,6 +241,7 @@ fun EditorScreen(
                 onCommitPath = onCommitPath,
                 onUndo = onUndo,
                 onRedo = onRedo,
+                onSkinRegionPath = onSkinRegionPath,
                 onTextTransform = onTextTransform,
                 onTextChange = onTextChange,
                 onStartTextEdit = onStartTextEdit,
@@ -268,6 +273,8 @@ fun EditorScreen(
                 onFaceSlimChange = onFaceSlimChange,
                 onSkinSmoothChange = onSkinSmoothChange,
                 onSkinBrightenChange = onSkinBrightenChange,
+                onSkinRegionToggle = onSkinRegionToggle,
+                onSkinRegionClear = onSkinRegionClear,
                 onBrushModeChange = onBrushModeChange,
                 onBrushColorChange = onBrushColorChange,
                 onBrushSizeChange = onBrushSizeChange,
@@ -386,6 +393,7 @@ private fun EditorPreview(
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onSkinRegionPath: (TouchPath) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
     onTextChange: (String) -> Unit,
     onStartTextEdit: (String) -> Unit,
@@ -421,6 +429,7 @@ private fun EditorPreview(
             onCommitPath = onCommitPath,
             onUndo = onUndo,
             onRedo = onRedo,
+            onSkinRegionPath = onSkinRegionPath,
             onTextTransform = onTextTransform,
             onTextChange = onTextChange,
             onStartTextEdit = onStartTextEdit,
@@ -522,6 +531,7 @@ private fun PreviewCanvas(
     onCommitPath: (TouchPath) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onSkinRegionPath: (TouchPath) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
     onTextChange: (String) -> Unit,
     onStartTextEdit: (String) -> Unit,
@@ -537,10 +547,13 @@ private fun PreviewCanvas(
         else -> Modifier.background(editor.selectedColor)
     }
     // 2 ngón zoom / 1 ngón pan (khi đã phóng to) cho các tab không có gesture riêng:
-    // ERASE tự xử lý trong EraseCanvas, TEXT dùng 2 ngón cho sticker, CROP cho khung cắt.
+    // ERASE tự xử lý trong EraseCanvas, TEXT dùng 2 ngón cho sticker, CROP cho khung
+    // cắt, FACE đang quét tay thì SkinRegionCanvas tự xử lý cả vẽ lẫn zoom.
+    val skinRegionActive = editor.activeTool == EditorTool.FACE && editor.skinRegionEnabled
     val canZoom = editor.activeTool != EditorTool.ERASE &&
         editor.activeTool != EditorTool.TEXT &&
-        editor.activeTool != EditorTool.CROP
+        editor.activeTool != EditorTool.CROP &&
+        !skinRegionActive
     // Đọc qua rememberUpdatedState để pointerInput(Unit) không bị restart giữa cử chỉ
     // mỗi lần scale/offset đổi.
     val curScale by rememberUpdatedState(scale)
@@ -650,6 +663,20 @@ private fun PreviewCanvas(
                     ),
                 contentScale = ContentScale.Fit,
                 colorFilter = colorFilter,
+            )
+        }
+        // Lớp quét tay vùng da (tab Mặt): 1 ngón vẽ vùng, 2 ngón zoom; vùng đã quét
+        // hiển thị mờ màu teal đè trên ảnh.
+        if (skinRegionActive) {
+            SkinRegionCanvas(
+                committedPaths = editor.skinRegionPaths,
+                bitmapWidth = effectedBitmap.width,
+                bitmapHeight = effectedBitmap.height,
+                scale = scale,
+                offset = offset,
+                onTransform = onTransform,
+                onCommitPath = onSkinRegionPath,
+                modifier = Modifier.fillMaxSize(),
             )
         }
         TextStickerLayer(
@@ -785,6 +812,8 @@ private fun FloatingToolPanel(
     onFaceSlimChange: (Float) -> Unit,
     onSkinSmoothChange: (Float) -> Unit,
     onSkinBrightenChange: (Float) -> Unit,
+    onSkinRegionToggle: () -> Unit,
+    onSkinRegionClear: () -> Unit,
     onBrushModeChange: (BrushMode) -> Unit,
     onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
@@ -868,6 +897,10 @@ private fun FloatingToolPanel(
                         onFaceSlimChange = onFaceSlimChange,
                         onSkinSmoothChange = onSkinSmoothChange,
                         onSkinBrightenChange = onSkinBrightenChange,
+                        skinRegionEnabled = editor.skinRegionEnabled,
+                        hasSkinRegion = editor.skinRegionPaths.isNotEmpty(),
+                        onSkinRegionToggle = onSkinRegionToggle,
+                        onSkinRegionClear = onSkinRegionClear,
                     )
                     EditorTool.ERASE -> EraseToolPanel(
                         brushMode = editor.brushMode,

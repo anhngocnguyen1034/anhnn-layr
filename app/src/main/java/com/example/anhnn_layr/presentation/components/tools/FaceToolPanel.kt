@@ -6,14 +6,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +69,10 @@ fun FaceToolPanel(
     onFaceSlimChange: (Float) -> Unit,
     onSkinSmoothChange: (Float) -> Unit,
     onSkinBrightenChange: (Float) -> Unit,
+    skinRegionEnabled: Boolean,
+    hasSkinRegion: Boolean,
+    onSkinRegionToggle: () -> Unit,
+    onSkinRegionClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val noFace = faceDetected == false
@@ -109,6 +116,16 @@ fun FaceToolPanel(
         // Bảng màu son — chỉ hiện khi đang chỉnh môi.
         if (selected == FaceFeature.LIP && !noFace) {
             LipShadeRow(selected = lipShade, onSelected = onLipShadeChange)
+        }
+        // Quét tay vùng da — chỉ hiện ở mục Mịn da / Sáng da: bật rồi quét ngón tay lên
+        // vùng da trên ảnh để giới hạn hiệu ứng vào vùng đó (chưa quét = toàn mặt).
+        if ((selected == FaceFeature.SMOOTH || selected == FaceFeature.BRIGHTEN) && !noFace) {
+            SkinRegionRow(
+                enabled = skinRegionEnabled,
+                hasRegion = hasSkinRegion,
+                onToggle = onSkinRegionToggle,
+                onClear = onSkinRegionClear,
+            )
         }
         ToolItemStrip {
             // Làm đẹp 1 chạm: áp preset cả 6 mục; bấm lại khi đang đúng preset → về 0.
@@ -168,6 +185,41 @@ fun FaceToolPanel(
                 onClick = { selected = FaceFeature.BRIGHTEN },
                 enabled = !noFace,
             )
+        }
+    }
+}
+
+/** Hàng điều khiển quét tay: chip bật/tắt chế độ quét + nút xoá vùng + gợi ý thao tác. */
+@Composable
+private fun SkinRegionRow(
+    enabled: Boolean,
+    hasRegion: Boolean,
+    onToggle: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = enabled,
+            onClick = onToggle,
+            label = { Text("Quét tay") },
+        )
+        Text(
+            text = when {
+                enabled -> "Quét ngón tay lên vùng da cần chỉnh"
+                hasRegion -> "Chỉ chỉnh vùng đã quét"
+                else -> "Đang chỉnh toàn mặt"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (hasRegion) {
+            TextButton(onClick = onClear) { Text("Xoá vùng") }
         }
     }
 }

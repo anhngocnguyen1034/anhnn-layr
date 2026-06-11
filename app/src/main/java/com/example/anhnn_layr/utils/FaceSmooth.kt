@@ -55,12 +55,15 @@ private const val EDGE_HI = 48
  *
  * Chỉ xử lý trong khung bao khuôn mặt nên thường <100ms khi kéo slider.
  * @param intensity 0..1. Trả về thẳng [srcBitmap] khi không cần / thiếu điểm / lỗi.
+ * @param userMask mặt nạ vùng quét tay ([buildSkinRegionMask]) — null = toàn mặt;
+ * khác null thì hiệu ứng chỉ ăn vào vùng alpha > 0 (nhân thêm với mặt nạ da & cổng màu).
  * Thuần CPU — gọi trên Dispatchers.Default.
  */
 fun applySkinSmoothing(
     srcBitmap: Bitmap,
     allPoints: List<FaceMeshPoint>,
     intensity: Float,
+    userMask: Bitmap? = null,
 ): Bitmap {
     val amount = intensity.coerceIn(0f, 1f)
     if (amount <= 0f || allPoints.size <= MAX_SKIN_ID) return srcBitmap
@@ -86,11 +89,18 @@ fun applySkinSmoothing(
         val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
         val smoBuf = IntArray(area).also { smoothed.getPixels(it, 0, bw, bx, by, bw, bh) }
         val mskBuf = IntArray(area).also { mask.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val userBuf = userMask?.let { IntArray(area).also { buf -> it.getPixels(buf, 0, bw, bx, by, bw, bh) } }
 
         val amount256 = (amount * 256f).toInt()
         for (i in 0 until area) {
-            val ma = (mskBuf[i] ushr 24) and 0xFF
+            var ma = (mskBuf[i] ushr 24) and 0xFF
             if (ma == 0) continue
+            // Vùng quét tay: ngoài vùng đã quét → bỏ qua; mép vùng tự mềm theo alpha.
+            if (userBuf != null) {
+                val ua = (userBuf[i] ushr 24) and 0xFF
+                if (ua == 0) continue
+                ma = ma * ua / 255
+            }
             val s = srcBuf[i]
             val sm = smoBuf[i]
             val sr = (s ushr 16) and 0xFF
@@ -162,12 +172,14 @@ private const val SKIN_SAMPLE_MIN = 8
  * màu da (Cb/Cr) — oval hình học không trùng khít viền mặt thật (tóc, kính, nền sát
  * viền) nên nếu nâng cả oval thì vùng sáng nhìn như lệch khỏi khuôn mặt.
  * @param intensity 0..1. Trả về thẳng [srcBitmap] khi không cần / thiếu điểm / lỗi.
+ * @param userMask mặt nạ vùng quét tay — như [applySkinSmoothing].
  * Thuần CPU — gọi trên Dispatchers.Default.
  */
 fun applySkinBrighten(
     srcBitmap: Bitmap,
     allPoints: List<FaceMeshPoint>,
     intensity: Float,
+    userMask: Bitmap? = null,
 ): Bitmap {
     val amount = intensity.coerceIn(0f, 1f)
     if (amount <= 0f || allPoints.size <= MAX_SKIN_ID) return srcBitmap
@@ -182,6 +194,7 @@ fun applySkinBrighten(
         val area = bw * bh
         val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
         val mskBuf = IntArray(area).also { region.mask.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val userBuf = userMask?.let { IntArray(area).also { buf -> it.getPixels(buf, 0, bw, bx, by, bw, bh) } }
 
         // Cổng màu da thích ứng theo chính khuôn mặt (lấy mẫu má + trán).
         val gate = buildSkinGate(srcBitmap, allPoints, region.faceWidth)
@@ -190,8 +203,14 @@ fun applySkinBrighten(
         // số nguyên (như applySkinSmoothing).
         val amount256 = (amount * BRIGHTEN_LIFT_MAX * 256f).toInt()
         for (i in 0 until area) {
-            val ma = (mskBuf[i] ushr 24) and 0xFF
+            var ma = (mskBuf[i] ushr 24) and 0xFF
             if (ma == 0) continue
+            // Vùng quét tay: ngoài vùng đã quét → bỏ qua; mép vùng tự mềm theo alpha.
+            if (userBuf != null) {
+                val ua = (userBuf[i] ushr 24) and 0xFF
+                if (ua == 0) continue
+                ma = ma * ua / 255
+            }
             val p = srcBuf[i]
             // Pixel trong suốt (nền đã tách) — nâng sáng cũng vô hình, bỏ qua cho nhanh.
             if ((p ushr 24) and 0xFF == 0) continue
@@ -214,6 +233,44 @@ fun applySkinBrighten(
         region.mask.recycle()
         out
     }.getOrElse { srcBitmap }
+}
+
+/**
+ * Rasterize các nét quét tay thành mặt nạ ARGB (alpha 255 = vùng được chỉnh): nét vẽ
+ * trắng theo [TouchPath.brushSize], mép làm mềm bằng [BlurMaskFilter] để vùng chỉnh
+ * không bị viền cứng. Trả về null khi không có nét nào (= chỉnh toàn mặt như cũ).
+ * Mặt nạ chỉ GIỚI HẠN vùng — trọng số da thật vẫn do SkinGate + mặt nạ oval quyết định
+ * nên quét ẩu lên tóc/nền cũng không lem.
+ */
+fun buildSkinRegionMask(width: Int, height: Int, paths: List<TouchPath>): Bitmap? {
+    if (paths.isEmpty()) return null
+    val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(mask)
+    for (touch in paths) {
+        if (touch.points.isEmpty()) continue
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = touch.brushSize
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            maskFilter = BlurMaskFilter((touch.brushSize * 0.35f).coerceAtLeast(2f), BlurMaskFilter.Blur.NORMAL)
+        }
+        val p = Path()
+        val first = touch.points.first()
+        p.moveTo(first.x, first.y)
+        if (touch.points.size == 1) {
+            // Chấm một điểm: vẽ đoạn 0 độ dài với cap tròn = chấm tròn.
+            p.lineTo(first.x + 0.01f, first.y)
+        } else {
+            for (k in 1 until touch.points.size) {
+                val pt = touch.points[k]
+                p.lineTo(pt.x, pt.y)
+            }
+        }
+        canvas.drawPath(p, paint)
+    }
+    return mask
 }
 
 /**
