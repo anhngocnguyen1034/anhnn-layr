@@ -63,6 +63,8 @@ fun EraseCanvas(
     offset: Offset,
     onTransform: (newScale: Float, newOffset: Offset) -> Unit,
     onCommitPath: (TouchPath) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var currentPath by remember { mutableStateOf<Path?>(null, neverEqualPolicy()) }
@@ -108,6 +110,12 @@ fun EraseCanvas(
                     }
 
                     val firstChange = awaitFirstDown(requireUnconsumed = false)
+                    // Nhận diện tap nhanh nhiều ngón (2 ngón = undo, 3 ngón = redo):
+                    // đếm số ngón tối đa + tổng dịch chuyển để phân biệt với pinch zoom.
+                    val downTime = firstChange.uptimeMillis
+                    var lastTime = downTime
+                    var maxPointers = 1
+                    var multiMoved = 0f
                     val firstBmp = screenToBitmap(firstChange.position)
                     strokeBrushSize = (brushSize / scale).coerceAtLeast(1f)
                     lastPoint = firstBmp
@@ -120,7 +128,9 @@ fun EraseCanvas(
 
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Main)
+                        event.changes.firstOrNull()?.let { lastTime = it.uptimeMillis }
                         val active = event.changes.filter { it.pressed }
+                        if (active.size > maxPointers) maxPointers = active.size
                         if (active.isEmpty()) break
 
                         if (active.size >= 2) {
@@ -133,6 +143,7 @@ fun EraseCanvas(
                             val zoom = event.calculateZoom()
                             val pan = event.calculatePan()
                             val centroid = event.calculateCentroid(useCurrent = false)
+                            multiMoved += pan.getDistance() + kotlin.math.abs(zoom - 1f) * 300f
                             val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
                             val actualZoom = if (scale == 0f) 1f else newScale / scale
                             val newOffset = Offset(
@@ -159,6 +170,11 @@ fun EraseCanvas(
                         } else {
                             active.forEach { it.consume() }
                         }
+                    }
+
+                    // Tap nhanh nhiều ngón, gần như không di chuyển → undo/redo.
+                    if (maxPointers >= 2 && lastTime - downTime < 350 && multiMoved < 24f) {
+                        if (maxPointers == 2) onUndo() else onRedo()
                     }
 
                     if (brushStarted && currentPoints.isNotEmpty()) {
