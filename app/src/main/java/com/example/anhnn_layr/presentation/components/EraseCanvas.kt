@@ -62,6 +62,11 @@ fun EraseCanvas(
     var pendingPath by remember { mutableStateOf<Path?>(null, neverEqualPolicy()) }
     var lastPoint by remember { mutableStateOf(Offset.Zero) }
     val currentPoints = remember { mutableListOf<Offset>() }
+    // Cỡ cọ hiệu dụng (toạ độ bitmap) chốt tại lúc đặt ngón: chia cho scale để khi
+    // zoom vào cọ thực tế nhỏ lại tương ứng — độ to trên màn hình giữ nguyên, zoom
+    // càng sâu vẽ càng tinh. Giữ riêng cho nét đang vẽ + nét chờ bake để đổi cỡ cọ
+    // giữa chừng không làm lệch lớp phủ.
+    var strokeBrushSize by remember { mutableStateOf(brushSize) }
 
     val bmpW = workingBitmap.width.toFloat()
     val bmpH = workingBitmap.height.toFloat()
@@ -93,6 +98,7 @@ fun EraseCanvas(
 
                     val firstChange = awaitFirstDown(requireUnconsumed = false)
                     val firstBmp = screenToBitmap(firstChange.position)
+                    strokeBrushSize = (brushSize / scale).coerceAtLeast(1f)
                     lastPoint = firstBmp
                     currentPath = Path().apply { moveTo(firstBmp.x, firstBmp.y) }
                     currentPoints.clear()
@@ -149,7 +155,7 @@ fun EraseCanvas(
                             TouchPath(
                                 points = currentPoints.toList(),
                                 mode = brushMode,
-                                brushSize = brushSize,
+                                brushSize = strokeBrushSize,
                                 color = brushColor.toArgb(),
                             )
                         )
@@ -172,8 +178,8 @@ fun EraseCanvas(
                 dstSize = bmpIntSize,
             )
             // Nét đã thả tay (chờ bitmap) vẽ trước, rồi tới nét đang vẽ.
-            pendingPath?.let { drawStrokeOverlay(it, brushMode, brushColor, brushSize, originalImage, bmpIntSize) }
-            currentPath?.let { drawStrokeOverlay(it, brushMode, brushColor, brushSize, originalImage, bmpIntSize) }
+            pendingPath?.let { drawStrokeOverlay(it, brushMode, brushColor, strokeBrushSize, originalImage, bmpIntSize) }
+            currentPath?.let { drawStrokeOverlay(it, brushMode, brushColor, strokeBrushSize, originalImage, bmpIntSize) }
         }
     }
 }
