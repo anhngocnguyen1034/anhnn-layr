@@ -120,11 +120,24 @@ fun applySkinSmoothing(
 // càng được cộng ít nên highlight không bị cháy).
 private const val BRIGHTEN_LIFT_MAX = 0.30f
 
+// Cổng màu da theo sắc độ YCbCr (dải kinh điển cho da người, mọi tông sáng/tối):
+// chỉ pixel có Cb/Cr trong dải mới được nâng sáng → tóc xoã trên trán, gọng kính,
+// nền lọt vào oval mặt KHÔNG bị sáng theo. SOFT = bề rộng mép chuyển tiếp mềm.
+private const val SKIN_CB_LO = 77
+private const val SKIN_CB_HI = 127
+private const val SKIN_CR_LO = 133
+private const val SKIN_CR_HI = 173
+private const val SKIN_SOFT = 10
+
 /**
  * Sáng da / trắng da từ 468 điểm Face Mesh. Dùng CHUNG mặt nạ da với [applySkinSmoothing]
  * (oval mặt, đục mắt + lông mày + môi, mép feather) nhưng thay vì blend lớp mờ thì nâng
  * sáng kiểu screen: c' = c + (255 − c) · lift — da sáng đều, highlight không cháy, mắt/
  * mày/môi giữ nguyên độ tương phản.
+ *
+ * Mặt nạ oval chỉ là vùng GIỚI HẠN; trọng số thật của từng pixel còn nhân thêm cổng
+ * màu da (Cb/Cr) — oval hình học không trùng khít viền mặt thật (tóc, kính, nền sát
+ * viền) nên nếu nâng cả oval thì vùng sáng nhìn như lệch khỏi khuôn mặt.
  * @param intensity 0..1. Trả về thẳng [srcBitmap] khi không cần / thiếu điểm / lỗi.
  * Thuần CPU — gọi trên Dispatchers.Default.
  */
@@ -153,12 +166,20 @@ fun applySkinBrighten(
         for (i in 0 until area) {
             val ma = (mskBuf[i] ushr 24) and 0xFF
             if (ma == 0) continue
-            val lift256 = ma * amount256 / 255
-            if (lift256 <= 0) continue
             val p = srcBuf[i]
+            // Pixel trong suốt (nền đã tách) — nâng sáng cũng vô hình, bỏ qua cho nhanh.
+            if ((p ushr 24) and 0xFF == 0) continue
             val r = (p ushr 16) and 0xFF
             val g = (p ushr 8) and 0xFF
             val b = p and 0xFF
+            // Cổng màu da: Cb/Cr ngoài dải da → trọng số 0 (tóc, kính, nền trong oval).
+            val cb = 128 + ((-38 * r - 74 * g + 112 * b) shr 8)
+            val cr = 128 + ((112 * r - 94 * g - 18 * b) shr 8)
+            val skin256 = softRange256(cb, SKIN_CB_LO, SKIN_CB_HI) *
+                softRange256(cr, SKIN_CR_LO, SKIN_CR_HI) shr 8
+            if (skin256 <= 0) continue
+            val lift256 = ma * amount256 / 255 * skin256 shr 8
+            if (lift256 <= 0) continue
             val rr = r + (((255 - r) * lift256) shr 8)
             val gg = g + (((255 - g) * lift256) shr 8)
             val bb = b + (((255 - b) * lift256) shr 8)
@@ -170,6 +191,18 @@ fun applySkinBrighten(
         region.mask.recycle()
         out
     }.getOrElse { srcBitmap }
+}
+
+/**
+ * Trọng số mềm 0..256 cho giá trị [v] so với khoảng [lo, hi]: trong khoảng = 256,
+ * ngoài khoảng quá [SKIN_SOFT] = 0, mép chuyển tiếp nội suy tuyến tính — tránh viền
+ * cứng giữa vùng được nâng sáng và không.
+ */
+private fun softRange256(v: Int, lo: Int, hi: Int): Int = when {
+    v < lo - SKIN_SOFT || v > hi + SKIN_SOFT -> 0
+    v < lo -> (v - (lo - SKIN_SOFT)) * 256 / SKIN_SOFT
+    v > hi -> ((hi + SKIN_SOFT) - v) * 256 / SKIN_SOFT
+    else -> 256
 }
 
 /** Khung bao khuôn mặt + mặt nạ da — phần dùng chung của mịn da và sáng da. */
