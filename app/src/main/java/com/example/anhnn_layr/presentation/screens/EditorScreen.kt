@@ -12,6 +12,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -64,6 +70,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -152,6 +159,13 @@ fun EditorScreen(
     val ctx = LocalContext.current
     var scale by remember(workingBitmap) { mutableStateOf(1f) }
     var offset by remember(workingBitmap) { mutableStateOf(Offset.Zero) }
+    // Khung cắt vẽ KHÔNG theo zoom nên khi mở tab cắt phải về 1x, tránh khung lệch ảnh.
+    LaunchedEffect(editor.activeTool) {
+        if (editor.activeTool == EditorTool.CROP) {
+            scale = 1f
+            offset = Offset.Zero
+        }
+    }
     val exportImage: () -> Unit = {
         runCatching {
             val finalBmp = generateFinalBitmap(
@@ -477,6 +491,18 @@ private fun CompareHoldButton(
     }
 }
 
+private const val PREVIEW_MIN_SCALE = 1f
+private const val PREVIEW_MAX_SCALE = 5f
+
+/** Kẹp pan để ảnh không bị kéo lộ mép khi đang phóng to (transform gốc (0,0)). */
+private fun clampPreviewPan(offset: Offset, scale: Float, canvasW: Float, canvasH: Float): Offset {
+    if (scale <= 1f) return Offset.Zero
+    return Offset(
+        x = offset.x.coerceIn(canvasW - canvasW * scale, 0f),
+        y = offset.y.coerceIn(canvasH - canvasH * scale, 0f),
+    )
+}
+
 @Composable
 private fun PreviewCanvas(
     displayBitmap: Bitmap,
@@ -502,9 +528,56 @@ private fun PreviewCanvas(
         editor.selectedColor == Color.Transparent -> Modifier
         else -> Modifier.background(editor.selectedColor)
     }
+    // 2 ngón zoom / 1 ngón pan (khi đã phóng to) cho các tab không có gesture riêng:
+    // ERASE tự xử lý trong EraseCanvas, TEXT dùng 2 ngón cho sticker, CROP cho khung cắt.
+    val canZoom = editor.activeTool != EditorTool.ERASE &&
+        editor.activeTool != EditorTool.TEXT &&
+        editor.activeTool != EditorTool.CROP
+    // Đọc qua rememberUpdatedState để pointerInput(Unit) không bị restart giữa cử chỉ
+    // mỗi lần scale/offset đổi.
+    val curScale by rememberUpdatedState(scale)
+    val curOffset by rememberUpdatedState(offset)
+    val zoomMod = if (canZoom) {
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    val active = event.changes.filter { it.pressed }
+                    if (active.isEmpty()) break
+                    if (active.size >= 2) {
+                        val zoom = event.calculateZoom()
+                        val pan = event.calculatePan()
+                        val centroid = event.calculateCentroid(useCurrent = false)
+                        val newScale = (curScale * zoom).coerceIn(PREVIEW_MIN_SCALE, PREVIEW_MAX_SCALE)
+                        val actualZoom = if (curScale == 0f) 1f else newScale / curScale
+                        val newOffset = Offset(
+                            x = curOffset.x + pan.x + (curOffset.x - centroid.x) * (actualZoom - 1f),
+                            y = curOffset.y + pan.y + (curOffset.y - centroid.y) * (actualZoom - 1f),
+                        )
+                        onTransform(
+                            newScale,
+                            clampPreviewPan(newOffset, newScale, size.width.toFloat(), size.height.toFloat()),
+                        )
+                        active.forEach { it.consume() }
+                    } else if (curScale > 1f) {
+                        val ch = active.first()
+                        val delta = ch.position - ch.previousPosition
+                        onTransform(
+                            curScale,
+                            clampPreviewPan(curOffset + delta, curScale, size.width.toFloat(), size.height.toFloat()),
+                        )
+                        ch.consume()
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
 
     Box(
-        modifier = modifier.then(baseMod),
+        modifier = modifier.then(baseMod).then(zoomMod),
         contentAlignment = Alignment.Center,
     ) {
         editor.blurredBackgroundBitmap?.let { bg ->
