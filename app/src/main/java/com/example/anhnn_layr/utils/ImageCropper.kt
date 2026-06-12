@@ -101,3 +101,14 @@ fun CropFrame.mapPoint(point: Offset): Offset {
 fun List<TouchPath>.transformedByCropFrame(frame: CropFrame): List<TouchPath> = map { path ->
     path.copy(points = path.points.map { frame.mapPoint(it) })
 }
+
+/** Đưa các cử chỉ nắn tay về toạ độ ảnh sau cắt: map điểm chạm + xoay vector kéo theo khung. */
+@JvmName("warpGesturesTransformedByCropFrame")
+fun List<List<WarpStroke>>.transformedByCropFrame(frame: CropFrame): List<List<WarpStroke>> =
+    map { gesture ->
+        gesture.map { s ->
+            val center = frame.mapPoint(Offset(s.cx, s.cy))
+            val end = frame.mapPoint(Offset(s.cx + s.dx, s.cy + s.dy))
+            s.copy(cx = center.x, cy = center.y, dx = end.x - center.x, dy = end.y - center.y)
+        }
+    }

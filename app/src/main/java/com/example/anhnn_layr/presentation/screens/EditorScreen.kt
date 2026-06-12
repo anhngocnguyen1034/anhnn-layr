@@ -83,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.anhnn_layr.presentation.components.CropOverlay
 import com.example.anhnn_layr.presentation.components.EraseCanvas
+import com.example.anhnn_layr.presentation.components.FaceWarpCanvas
 import com.example.anhnn_layr.presentation.components.SkinRegionCanvas
 import com.example.anhnn_layr.presentation.components.TextStickerLayer
 import com.example.anhnn_layr.presentation.components.tools.BackgroundToolPanel
@@ -100,6 +101,7 @@ import com.example.anhnn_layr.utils.ColorPreset
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.TextStickerFont
 import com.example.anhnn_layr.utils.TouchPath
+import com.example.anhnn_layr.utils.WarpStroke
 import com.example.anhnn_layr.utils.colorAdjustMatrixOrNull
 import com.example.anhnn_layr.utils.generateFinalBitmap
 import com.example.anhnn_layr.utils.pickSaveFormat
@@ -137,6 +139,11 @@ fun EditorScreen(
     onSkinRegionToggle: () -> Unit,
     onSkinRegionClear: () -> Unit,
     onSkinRegionPath: (TouchPath) -> Unit,
+    onWarpModeChange: (Boolean) -> Unit,
+    onWarpBrushSizeChange: (Float) -> Unit,
+    onWarpSegment: (WarpStroke, Boolean) -> Unit,
+    onWarpUndo: () -> Unit,
+    onWarpClear: () -> Unit,
     onSelectCropAspect: (Float?) -> Unit,
     onApplyCrop: () -> Unit,
     onResetCrop: () -> Unit,
@@ -242,6 +249,7 @@ fun EditorScreen(
                 onUndo = onUndo,
                 onRedo = onRedo,
                 onSkinRegionPath = onSkinRegionPath,
+                onWarpSegment = onWarpSegment,
                 onTextTransform = onTextTransform,
                 onTextChange = onTextChange,
                 onStartTextEdit = onStartTextEdit,
@@ -275,6 +283,10 @@ fun EditorScreen(
                 onSkinBrightenChange = onSkinBrightenChange,
                 onSkinRegionToggle = onSkinRegionToggle,
                 onSkinRegionClear = onSkinRegionClear,
+                onWarpModeChange = onWarpModeChange,
+                onWarpBrushSizeChange = onWarpBrushSizeChange,
+                onWarpUndo = onWarpUndo,
+                onWarpClear = onWarpClear,
                 onBrushModeChange = onBrushModeChange,
                 onBrushColorChange = onBrushColorChange,
                 onBrushSizeChange = onBrushSizeChange,
@@ -394,6 +406,7 @@ private fun EditorPreview(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onSkinRegionPath: (TouchPath) -> Unit,
+    onWarpSegment: (WarpStroke, Boolean) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
     onTextChange: (String) -> Unit,
     onStartTextEdit: (String) -> Unit,
@@ -430,6 +443,7 @@ private fun EditorPreview(
             onUndo = onUndo,
             onRedo = onRedo,
             onSkinRegionPath = onSkinRegionPath,
+            onWarpSegment = onWarpSegment,
             onTextTransform = onTextTransform,
             onTextChange = onTextChange,
             onStartTextEdit = onStartTextEdit,
@@ -532,6 +546,7 @@ private fun PreviewCanvas(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onSkinRegionPath: (TouchPath) -> Unit,
+    onWarpSegment: (WarpStroke, Boolean) -> Unit,
     onTextTransform: (String, Offset, Float, Float) -> Unit,
     onTextChange: (String) -> Unit,
     onStartTextEdit: (String) -> Unit,
@@ -550,10 +565,13 @@ private fun PreviewCanvas(
     // ERASE tự xử lý trong EraseCanvas, TEXT dùng 2 ngón cho sticker, CROP cho khung
     // cắt, FACE đang quét tay thì SkinRegionCanvas tự xử lý cả vẽ lẫn zoom.
     val skinRegionActive = editor.activeTool == EditorTool.FACE && editor.skinRegionEnabled
+    // Nắn tay: 1 ngón vuốt là kéo da (FaceWarpCanvas tự xử lý cả zoom 2 ngón).
+    val warpActive = editor.activeTool == EditorTool.FACE && editor.faceWarpEnabled
     val canZoom = editor.activeTool != EditorTool.ERASE &&
         editor.activeTool != EditorTool.TEXT &&
         editor.activeTool != EditorTool.CROP &&
-        !skinRegionActive
+        !skinRegionActive &&
+        !warpActive
     // Đọc qua rememberUpdatedState để pointerInput(Unit) không bị restart giữa cử chỉ
     // mỗi lần scale/offset đổi.
     val curScale by rememberUpdatedState(scale)
@@ -676,6 +694,20 @@ private fun PreviewCanvas(
                 offset = offset,
                 onTransform = onTransform,
                 onCommitPath = onSkinRegionPath,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        // Lớp nắn tay (mục "Nắn tay" tab Mặt): 1 ngón vuốt → kéo da theo ngón ngay khi
+        // đang vuốt, 2 ngón zoom; vòng tròn quanh ngón chỉ vùng ảnh hưởng.
+        if (warpActive) {
+            FaceWarpCanvas(
+                bitmapWidth = effectedBitmap.width,
+                bitmapHeight = effectedBitmap.height,
+                brushSize = editor.warpBrushSize,
+                scale = scale,
+                offset = offset,
+                onTransform = onTransform,
+                onWarpSegment = onWarpSegment,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -814,6 +846,10 @@ private fun FloatingToolPanel(
     onSkinBrightenChange: (Float) -> Unit,
     onSkinRegionToggle: () -> Unit,
     onSkinRegionClear: () -> Unit,
+    onWarpModeChange: (Boolean) -> Unit,
+    onWarpBrushSizeChange: (Float) -> Unit,
+    onWarpUndo: () -> Unit,
+    onWarpClear: () -> Unit,
     onBrushModeChange: (BrushMode) -> Unit,
     onBrushColorChange: (Color) -> Unit,
     onBrushSizeChange: (Float) -> Unit,
@@ -901,6 +937,13 @@ private fun FloatingToolPanel(
                         hasSkinRegion = editor.skinRegionPaths.isNotEmpty(),
                         onSkinRegionToggle = onSkinRegionToggle,
                         onSkinRegionClear = onSkinRegionClear,
+                        warpEnabled = editor.faceWarpEnabled,
+                        warpBrushSize = editor.warpBrushSize,
+                        warpCount = editor.warpGestures.size,
+                        onWarpModeChange = onWarpModeChange,
+                        onWarpBrushSizeChange = onWarpBrushSizeChange,
+                        onWarpUndo = onWarpUndo,
+                        onWarpClear = onWarpClear,
                     )
                     EditorTool.ERASE -> EraseToolPanel(
                         brushMode = editor.brushMode,
