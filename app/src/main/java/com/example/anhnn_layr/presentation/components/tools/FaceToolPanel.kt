@@ -6,14 +6,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +39,7 @@ private enum class FaceFeature(val label: String) {
     SLIM("Thon mặt"),
     SMOOTH("Mịn da"),
     BRIGHTEN("Sáng da"),
+    WARP("Nắn tay"),
 }
 
 // Bảng màu son (LIP_PALETTE ở utils) đổi sang Compose Color, tính 1 lần.
@@ -66,10 +70,28 @@ fun FaceToolPanel(
     onFaceSlimChange: (Float) -> Unit,
     onSkinSmoothChange: (Float) -> Unit,
     onSkinBrightenChange: (Float) -> Unit,
+    skinRegionEnabled: Boolean,
+    hasSkinRegion: Boolean,
+    onSkinRegionToggle: () -> Unit,
+    onSkinRegionClear: () -> Unit,
+    warpEnabled: Boolean,
+    warpBrushSize: Float,
+    warpCount: Int,
+    onWarpModeChange: (Boolean) -> Unit,
+    onWarpBrushSizeChange: (Float) -> Unit,
+    onWarpUndo: () -> Unit,
+    onWarpClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val noFace = faceDetected == false
-    var selected by remember { mutableStateOf(FaceFeature.EYE) }
+    // Panel bị dựng lại mỗi lần đổi tab → khởi tạo theo chế độ nắn tay đang bật để
+    // lớp FaceWarpCanvas trên ảnh và mục đang chọn không lệch nhau.
+    var selected by remember { mutableStateOf(if (warpEnabled) FaceFeature.WARP else FaceFeature.EYE) }
+    // Chọn mục nào thì đồng bộ luôn chế độ nắn tay (chỉ bật khi đang ở mục "Nắn tay").
+    fun select(feature: FaceFeature) {
+        selected = feature
+        onWarpModeChange(feature == FaceFeature.WARP)
+    }
 
     val activeValue = when (selected) {
         FaceFeature.EYE -> eyeEnlarge
@@ -79,6 +101,7 @@ fun FaceToolPanel(
         FaceFeature.SLIM -> faceSlim
         FaceFeature.SMOOTH -> skinSmooth
         FaceFeature.BRIGHTEN -> skinBrighten
+        FaceFeature.WARP -> warpBrushSize
     }
     val onActiveChange: (Float) -> Unit = when (selected) {
         FaceFeature.EYE -> onEyeEnlargeChange
@@ -88,15 +111,21 @@ fun FaceToolPanel(
         FaceFeature.SLIM -> onFaceSlimChange
         FaceFeature.SMOOTH -> onSkinSmoothChange
         FaceFeature.BRIGHTEN -> onSkinBrightenChange
+        FaceFeature.WARP -> onWarpBrushSizeChange
     }
 
     ToolPanelColumn(title = "Chỉnh mặt", modifier = modifier) {
+        // Nắn tay + Mịn da/Sáng da (qua quét tay vùng) không cần landmark nên vẫn dùng
+        // được khi không dò thấy mặt.
+        val worksWithoutFace = selected == FaceFeature.WARP ||
+            selected == FaceFeature.SMOOTH ||
+            selected == FaceFeature.BRIGHTEN
         ActiveSlider(
             value = activeValue,
             range = 0f..1f,
             onValueChange = onActiveChange,
             resetKey = selected,
-            enabled = !noFace,
+            enabled = !noFace || worksWithoutFace,
             onReset = { onActiveChange(0f) },
         )
         if (noFace) {
@@ -109,6 +138,26 @@ fun FaceToolPanel(
         // Bảng màu son — chỉ hiện khi đang chỉnh môi.
         if (selected == FaceFeature.LIP && !noFace) {
             LipShadeRow(selected = lipShade, onSelected = onLipShadeChange)
+        }
+        // Quét tay vùng da — chỉ hiện ở mục Mịn da / Sáng da: bật rồi quét ngón tay lên
+        // vùng da trên ảnh để giới hạn hiệu ứng vào vùng đó (chưa quét = toàn mặt).
+        // Khi KHÔNG dò thấy mặt vẫn dùng được: hiệu ứng chạy thuần theo vùng đã quét.
+        if (selected == FaceFeature.SMOOTH || selected == FaceFeature.BRIGHTEN) {
+            SkinRegionRow(
+                enabled = skinRegionEnabled,
+                hasRegion = hasSkinRegion,
+                noFace = noFace,
+                onToggle = onSkinRegionToggle,
+                onClear = onSkinRegionClear,
+            )
+        }
+        // Nắn tay: gợi ý thao tác + hoàn tác/xoá nét. Slider phía trên chỉnh cỡ vùng kéo.
+        if (selected == FaceFeature.WARP) {
+            WarpRow(
+                hasWarp = warpCount > 0,
+                onUndo = onWarpUndo,
+                onClear = onWarpClear,
+            )
         }
         ToolItemStrip {
             // Làm đẹp 1 chạm: áp preset cả 6 mục; bấm lại khi đang đúng preset → về 0.
@@ -123,51 +172,121 @@ fun FaceToolPanel(
                 label = FaceFeature.EYE.label,
                 value = formatFaceValue(eyeEnlarge),
                 selected = selected == FaceFeature.EYE,
-                onClick = { selected = FaceFeature.EYE },
+                onClick = { select(FaceFeature.EYE) },
                 enabled = !noFace,
             )
             ToolItemCard(
                 label = FaceFeature.LIP.label,
                 value = formatFaceValue(lipColor),
                 selected = selected == FaceFeature.LIP,
-                onClick = { selected = FaceFeature.LIP },
+                onClick = { select(FaceFeature.LIP) },
                 enabled = !noFace,
             )
             ToolItemCard(
                 label = FaceFeature.TEETH.label,
                 value = formatFaceValue(teethWhiten),
                 selected = selected == FaceFeature.TEETH,
-                onClick = { selected = FaceFeature.TEETH },
+                onClick = { select(FaceFeature.TEETH) },
                 enabled = !noFace,
             )
             ToolItemCard(
                 label = FaceFeature.BLUSH.label,
                 value = formatFaceValue(blush),
                 selected = selected == FaceFeature.BLUSH,
-                onClick = { selected = FaceFeature.BLUSH },
+                onClick = { select(FaceFeature.BLUSH) },
                 enabled = !noFace,
             )
             ToolItemCard(
                 label = FaceFeature.SLIM.label,
                 value = formatFaceValue(faceSlim),
                 selected = selected == FaceFeature.SLIM,
-                onClick = { selected = FaceFeature.SLIM },
+                onClick = { select(FaceFeature.SLIM) },
                 enabled = !noFace,
             )
             ToolItemCard(
                 label = FaceFeature.SMOOTH.label,
                 value = formatFaceValue(skinSmooth),
                 selected = selected == FaceFeature.SMOOTH,
-                onClick = { selected = FaceFeature.SMOOTH },
-                enabled = !noFace,
+                onClick = { select(FaceFeature.SMOOTH) },
+                // Mịn da/Sáng da dùng được cả khi không dò thấy mặt (qua quét tay vùng).
             )
             ToolItemCard(
                 label = FaceFeature.BRIGHTEN.label,
                 value = formatFaceValue(skinBrighten),
                 selected = selected == FaceFeature.BRIGHTEN,
-                onClick = { selected = FaceFeature.BRIGHTEN },
-                enabled = !noFace,
+                onClick = { select(FaceFeature.BRIGHTEN) },
             )
+            // Nắn tay (liquify) kéo trực tiếp bằng ngón, không cần landmark → luôn bật.
+            ToolItemCard(
+                label = FaceFeature.WARP.label,
+                value = if (warpCount > 0) warpCount.toString() else null,
+                selected = selected == FaceFeature.WARP,
+                onClick = { select(FaceFeature.WARP) },
+            )
+        }
+    }
+}
+
+/** Hàng điều khiển nắn tay: gợi ý thao tác + nút hoàn tác nét cuối / xoá hết nét. */
+@Composable
+private fun WarpRow(
+    hasWarp: Boolean,
+    onUndo: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Vuốt ngón tay lên vùng cần nắn (vd: má → vuốt vào trong)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (hasWarp) {
+            TextButton(onClick = onUndo) { Text("Hoàn tác") }
+            TextButton(onClick = onClear) { Text("Xoá hết") }
+        }
+    }
+}
+
+/** Hàng điều khiển quét tay: chip bật/tắt chế độ quét + nút xoá vùng + gợi ý thao tác. */
+@Composable
+private fun SkinRegionRow(
+    enabled: Boolean,
+    hasRegion: Boolean,
+    noFace: Boolean,
+    onToggle: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = enabled,
+            onClick = onToggle,
+            label = { Text("Quét tay") },
+        )
+        Text(
+            text = when {
+                enabled -> "Quét ngón tay lên vùng da cần chỉnh"
+                hasRegion -> "Chỉ chỉnh vùng đã quét"
+                // Không landmark thì không có "toàn mặt" để chỉnh — phải quét tay.
+                noFace -> "Bật Quét tay rồi tô vùng cần chỉnh"
+                else -> "Đang chỉnh toàn mặt"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (hasRegion) {
+            TextButton(onClick = onClear) { Text("Xoá vùng") }
         }
     }
 }

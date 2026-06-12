@@ -27,6 +27,7 @@ import com.example.anhnn_layr.utils.applyEyeEnlarge
 import com.example.anhnn_layr.utils.applyFaceSlim
 import com.example.anhnn_layr.utils.applySkinBrighten
 import com.example.anhnn_layr.utils.applySkinSmoothing
+import com.example.anhnn_layr.utils.buildSkinRegionMask
 import com.example.anhnn_layr.utils.applyBlush
 import com.example.anhnn_layr.utils.applyFeather
 import com.example.anhnn_layr.utils.applyLipstick
@@ -35,6 +36,8 @@ import com.example.anhnn_layr.utils.BLUSH_PINK
 import com.example.anhnn_layr.utils.CropFrame
 import com.example.anhnn_layr.utils.FaceLandmarks
 import com.example.anhnn_layr.utils.LIP_PINK
+import com.example.anhnn_layr.utils.WarpStroke
+import com.example.anhnn_layr.utils.applyManualWarp
 import com.example.anhnn_layr.utils.detectFaceLandmarks
 import com.example.anhnn_layr.utils.blurBackground
 import com.example.anhnn_layr.utils.buildWorkingBitmap
@@ -125,6 +128,19 @@ data class EditorState(
     val skinSmooth: Float = 0f,
     // Cường độ sáng da / trắng da (0..1).
     val skinBrighten: Float = 0f,
+    // Quét tay vùng da: true = đang ở chế độ quét (ngón tay vẽ vùng thay vì pan ảnh).
+    val skinRegionEnabled: Boolean = false,
+    // Các nét đã quét (toạ độ workingBitmap). Rỗng = mịn/sáng da toàn mặt như cũ;
+    // có nét = hiệu ứng chỉ ăn vào vùng quét (vẫn nhân SkinGate nên không lem tóc).
+    val skinRegionPaths: List<TouchPath> = emptyList(),
+    // Nắn tay (liquify): true = ngón tay vuốt lên ảnh để kéo/nắn vùng đó (mục "Nắn tay"
+    // tab Mặt) thay vì pan ảnh. Loại trừ lẫn nhau với skinRegionEnabled.
+    val faceWarpEnabled: Boolean = false,
+    // Cỡ vùng ảnh hưởng của nét nắn (0..1 → bán kính nhỏ→lớn, chỉnh bằng slider).
+    val warpBrushSize: Float = 0.5f,
+    // Các cử chỉ nắn đã vuốt: mỗi cử chỉ (1 lần đặt ngón) là chuỗi đoạn nhỏ liên tiếp
+    // (toạ độ workingBitmap). "Hoàn tác" bỏ nguyên cử chỉ cuối.
+    val warpGestures: List<List<WarpStroke>> = emptyList(),
     val faceDetected: Boolean? = null,
     val textStickers: List<TextSticker> = emptyList(),
     val selectedTextStickerId: String? = null,
@@ -399,6 +415,71 @@ class RembgViewModel @Inject constructor(
         recomposeSubject(rebuildWorking = false)
     }
 
+    /** Bật/tắt chế độ quét tay vùng da. Bật khi cả 2 cường độ = 0 → mồi mịn da mặc định
+     *  để nét quét thấy được hiệu quả ngay. */
+    fun toggleSkinRegion() {
+        _editor.update {
+            val enabling = !it.skinRegionEnabled
+            if (enabling && it.skinSmooth <= 0f && it.skinBrighten <= 0f) {
+                it.copy(skinRegionEnabled = true, skinSmooth = AUTO_SKIN_SMOOTH, faceWarpEnabled = false)
+            } else {
+                it.copy(skinRegionEnabled = enabling, faceWarpEnabled = if (enabling) false else it.faceWarpEnabled)
+            }
+        }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /** Bật/tắt chế độ nắn tay (chọn mục "Nắn tay" trong tab Mặt). Tắt quét vùng da khi
+     *  bật vì hai lớp cùng bắt cử chỉ 1 ngón trên ảnh. */
+    fun setFaceWarpMode(enabled: Boolean) {
+        _editor.update {
+            if (enabled) it.copy(faceWarpEnabled = true, skinRegionEnabled = false)
+            else it.copy(faceWarpEnabled = false)
+        }
+    }
+
+    /** Cỡ vùng ảnh hưởng của nét nắn (0..1) — chỉ đổi cọ, không cần render lại. */
+    fun setWarpBrushSize(value: Float) = _editor.update { it.copy(warpBrushSize = value) }
+
+    /** Thêm một đoạn nắn (toạ độ workingBitmap) và render ngay — gọi liên tục khi đang
+     *  vuốt nên ảnh kéo theo ngón tay. [newGesture] = đoạn đầu của một lần đặt ngón. */
+    fun addWarpSegment(stroke: WarpStroke, newGesture: Boolean) {
+        _editor.update {
+            val gestures = if (newGesture || it.warpGestures.isEmpty()) {
+                it.warpGestures + listOf(listOf(stroke))
+            } else {
+                it.warpGestures.dropLast(1) + listOf(it.warpGestures.last() + stroke)
+            }
+            it.copy(warpGestures = gestures)
+        }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /** Hoàn tác nguyên cử chỉ nắn cuối cùng (cả chuỗi đoạn của một lần vuốt). */
+    fun undoWarpGesture() {
+        if (_editor.value.warpGestures.isEmpty()) return
+        _editor.update { it.copy(warpGestures = it.warpGestures.dropLast(1)) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /** Xoá toàn bộ nét nắn → mặt về nguyên trạng (các hiệu ứng khác giữ nguyên). */
+    fun clearWarp() {
+        _editor.update { it.copy(warpGestures = emptyList()) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /** Thêm một nét quét vùng da (toạ độ workingBitmap) và render lại. */
+    fun addSkinRegionPath(touch: TouchPath) {
+        _editor.update { it.copy(skinRegionPaths = it.skinRegionPaths + touch) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
+    /** Xoá toàn bộ vùng đã quét → quay về mịn/sáng da toàn mặt. */
+    fun clearSkinRegion() {
+        _editor.update { it.copy(skinRegionPaths = emptyList()) }
+        recomposeSubject(rebuildWorking = false)
+    }
+
     /**
      * Bật/tắt "Làm đẹp tự động": đặt cả 6 giá trị chỉnh mặt về preset trong MỘT update
      * (1 lần recompose); bấm lần nữa khi đang đúng preset → trả tất cả về 0.
@@ -646,6 +727,8 @@ class RembgViewModel @Inject constructor(
                 val croppedOriginal = orig.cropRotated(frame)
                 val croppedPaths = ed.paths.transformedByCropFrame(frame)
                 val croppedRedoStack = ed.redoStack.transformedByCropFrame(frame)
+                val croppedSkinRegion = ed.skinRegionPaths.transformedByCropFrame(frame)
+                val croppedWarpGestures = ed.warpGestures.transformedByCropFrame(frame)
                 val croppedTextStickers = ed.textStickers.map { sticker ->
                     sticker.copy(
                         center = frame.mapPoint(sticker.center),
@@ -663,6 +746,8 @@ class RembgViewModel @Inject constructor(
                     effected = effected,
                     paths = croppedPaths,
                     redoStack = croppedRedoStack,
+                    skinRegionPaths = croppedSkinRegion,
+                    warpGestures = croppedWarpGestures,
                     textStickers = croppedTextStickers,
                 )
             }
@@ -676,6 +761,8 @@ class RembgViewModel @Inject constructor(
                 it.copy(
                     paths = cropped.paths,
                     redoStack = cropped.redoStack,
+                    skinRegionPaths = cropped.skinRegionPaths,
+                    warpGestures = cropped.warpGestures,
                     textStickers = cropped.textStickers,
                     cropAspect = null,
                     // Tạo lại khung mặc định cho ảnh vừa cắt để có thể cắt tiếp.
@@ -746,9 +833,12 @@ class RembgViewModel @Inject constructor(
             // tích lũy), TRƯỚC feather. Trả về working nếu cường độ 0 / chưa có mặt.
             // Mịn da TRƯỚC khi warp: mặt nạ dùng toạ độ landmark khớp với working chưa
             // biến dạng (eye/slim warp sau đó chỉ biến hình lại lớp da đã mịn).
-            val smoothed = applySkinSmoothing(working, faceLandmarks?.allPoints.orEmpty(), ed.skinSmooth)
+            // Mặt nạ vùng quét tay (null = toàn mặt) — dùng chung cho mịn da & sáng da.
+            val regionMask = buildSkinRegionMask(working.width, working.height, ed.skinRegionPaths)
+            val smoothed = applySkinSmoothing(working, faceLandmarks?.allPoints.orEmpty(), ed.skinSmooth, regionMask)
             // Sáng da sau mịn (cùng mặt nạ, toạ độ landmark chưa biến dạng), trước warp.
-            val brightened = applySkinBrighten(smoothed, faceLandmarks?.allPoints.orEmpty(), ed.skinBrighten)
+            val brightened = applySkinBrighten(smoothed, faceLandmarks?.allPoints.orEmpty(), ed.skinBrighten, regionMask)
+            regionMask?.recycle()
             // Má hồng TRƯỚC warp: vùng má bị thon mặt kéo dịch, đánh trước để lớp phấn
             // biến dạng đồng bộ với da (không lệch vị trí như nếu vẽ sau).
             val blushed = applyBlush(brightened, faceLandmarks?.allPoints.orEmpty(), BLUSH_PINK, ed.blush)
@@ -766,7 +856,11 @@ class RembgViewModel @Inject constructor(
             // Răng trắng dùng đúng đa giác môi trong mà son đục lỗ → hai vùng không
             // chồng nhau, thứ tự son/răng không ảnh hưởng kết quả.
             val whitened = applyTeethWhiten(painted, faceLandmarks?.allPoints.orEmpty(), ed.teethWhiten)
-            val display = applyFeather(whitened, ed.featherRadius)
+            // Nắn tay áp CUỐI các hiệu ứng mặt: mọi bước theo landmark (son, răng…) bake
+            // trước ở toạ độ chưa biến dạng, rồi nét nắn kéo cả lớp trang điểm theo da —
+            // như liquify trên ảnh đã hoàn thiện, không lệch vị trí.
+            val warped = applyManualWarp(whitened, ed.warpGestures.flatten())
+            val display = applyFeather(warped, ed.featherRadius)
             working to display
         }
         val now = _state.value
@@ -899,5 +993,7 @@ private data class CroppedEditorState(
     val effected: Bitmap,
     val paths: List<TouchPath>,
     val redoStack: List<TouchPath>,
+    val skinRegionPaths: List<TouchPath>,
+    val warpGestures: List<List<WarpStroke>>,
     val textStickers: List<TextSticker>,
 )
