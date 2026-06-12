@@ -115,13 +115,17 @@ fun FaceToolPanel(
     }
 
     ToolPanelColumn(title = "Chỉnh mặt", modifier = modifier) {
+        // Nắn tay + Mịn da/Sáng da (qua quét tay vùng) không cần landmark nên vẫn dùng
+        // được khi không dò thấy mặt.
+        val worksWithoutFace = selected == FaceFeature.WARP ||
+            selected == FaceFeature.SMOOTH ||
+            selected == FaceFeature.BRIGHTEN
         ActiveSlider(
             value = activeValue,
             range = 0f..1f,
             onValueChange = onActiveChange,
             resetKey = selected,
-            // Nắn tay không cần landmark nên vẫn dùng được khi không dò thấy mặt.
-            enabled = !noFace || selected == FaceFeature.WARP,
+            enabled = !noFace || worksWithoutFace,
             onReset = { onActiveChange(0f) },
         )
         if (noFace) {
@@ -137,10 +141,12 @@ fun FaceToolPanel(
         }
         // Quét tay vùng da — chỉ hiện ở mục Mịn da / Sáng da: bật rồi quét ngón tay lên
         // vùng da trên ảnh để giới hạn hiệu ứng vào vùng đó (chưa quét = toàn mặt).
-        if ((selected == FaceFeature.SMOOTH || selected == FaceFeature.BRIGHTEN) && !noFace) {
+        // Khi KHÔNG dò thấy mặt vẫn dùng được: hiệu ứng chạy thuần theo vùng đã quét.
+        if (selected == FaceFeature.SMOOTH || selected == FaceFeature.BRIGHTEN) {
             SkinRegionRow(
                 enabled = skinRegionEnabled,
                 hasRegion = hasSkinRegion,
+                noFace = noFace,
                 onToggle = onSkinRegionToggle,
                 onClear = onSkinRegionClear,
             )
@@ -202,14 +208,13 @@ fun FaceToolPanel(
                 value = formatFaceValue(skinSmooth),
                 selected = selected == FaceFeature.SMOOTH,
                 onClick = { select(FaceFeature.SMOOTH) },
-                enabled = !noFace,
+                // Mịn da/Sáng da dùng được cả khi không dò thấy mặt (qua quét tay vùng).
             )
             ToolItemCard(
                 label = FaceFeature.BRIGHTEN.label,
                 value = formatFaceValue(skinBrighten),
                 selected = selected == FaceFeature.BRIGHTEN,
                 onClick = { select(FaceFeature.BRIGHTEN) },
-                enabled = !noFace,
             )
             // Nắn tay (liquify) kéo trực tiếp bằng ngón, không cần landmark → luôn bật.
             ToolItemCard(
@@ -253,6 +258,7 @@ private fun WarpRow(
 private fun SkinRegionRow(
     enabled: Boolean,
     hasRegion: Boolean,
+    noFace: Boolean,
     onToggle: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
@@ -271,6 +277,8 @@ private fun SkinRegionRow(
             text = when {
                 enabled -> "Quét ngón tay lên vùng da cần chỉnh"
                 hasRegion -> "Chỉ chỉnh vùng đã quét"
+                // Không landmark thì không có "toàn mặt" để chỉnh — phải quét tay.
+                noFace -> "Bật Quét tay rồi tô vùng cần chỉnh"
                 else -> "Đang chỉnh toàn mặt"
             },
             style = MaterialTheme.typography.bodySmall,

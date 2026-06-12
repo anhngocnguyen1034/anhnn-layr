@@ -66,7 +66,12 @@ fun applySkinSmoothing(
     userMask: Bitmap? = null,
 ): Bitmap {
     val amount = intensity.coerceIn(0f, 1f)
-    if (amount <= 0f || allPoints.size <= MAX_SKIN_ID) return srcBitmap
+    if (amount <= 0f) return srcBitmap
+    // Không có landmark (không dò thấy mặt) nhưng có vùng quét tay → chế độ THỦ CÔNG:
+    // tin hẳn vùng người dùng tô (không SkinGate/oval), vẫn giữ range-guard chống nhoè.
+    if (allPoints.size <= MAX_SKIN_ID) {
+        return if (userMask != null) applyManualSmoothing(srcBitmap, amount, userMask) else srcBitmap
+    }
 
     return runCatching {
         // --- Khung bao khuôn mặt + mặt nạ da (helper dùng chung với sáng da) ---
@@ -182,7 +187,11 @@ fun applySkinBrighten(
     userMask: Bitmap? = null,
 ): Bitmap {
     val amount = intensity.coerceIn(0f, 1f)
-    if (amount <= 0f || allPoints.size <= MAX_SKIN_ID) return srcBitmap
+    if (amount <= 0f) return srcBitmap
+    // Như applySkinSmoothing: không landmark + có vùng quét tay → nâng sáng thủ công.
+    if (allPoints.size <= MAX_SKIN_ID) {
+        return if (userMask != null) applyManualBrighten(srcBitmap, amount, userMask) else srcBitmap
+    }
 
     return runCatching {
         val region = buildFaceRegion(srcBitmap, allPoints) ?: return@runCatching srcBitmap
@@ -233,6 +242,136 @@ fun applySkinBrighten(
         region.mask.recycle()
         out
     }.getOrElse { srcBitmap }
+}
+
+/**
+ * Mịn da THỦ CÔNG theo vùng quét tay, KHÔNG cần landmark: trọng số = alpha mặt nạ
+ * (mép đã feather sẵn từ [buildSkinRegionMask]) * cường độ, vẫn giữ range-guard để
+ * cạnh sắc (viền môi, mũi, kính) trong vùng quét không bị nhoè. Bán kính blur theo
+ * bề ngang vùng đã quét (thay cho bề ngang mặt ở chế độ landmark).
+ */
+private fun applyManualSmoothing(srcBitmap: Bitmap, amount: Float, userMask: Bitmap): Bitmap {
+    return runCatching {
+        val bounds = maskBounds(userMask) ?: return@runCatching srcBitmap
+        val bx = bounds.left
+        val by = bounds.top
+        val bw = bounds.width()
+        val bh = bounds.height()
+
+        val smoothed = buildSmoothedLayer(srcBitmap, bounds.width().toFloat())
+
+        val area = bw * bh
+        val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val smoBuf = IntArray(area).also { smoothed.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val userBuf = IntArray(area).also { userMask.getPixels(it, 0, bw, bx, by, bw, bh) }
+
+        val amount256 = (amount * 256f).toInt()
+        for (i in 0 until area) {
+            val ua = (userBuf[i] ushr 24) and 0xFF
+            if (ua == 0) continue
+            val s = srcBuf[i]
+            if ((s ushr 24) and 0xFF == 0) continue        // nền trong suốt — bỏ qua
+            val sm = smoBuf[i]
+            val sr = (s ushr 16) and 0xFF
+            val sg = (s ushr 8) and 0xFF
+            val sb = s and 0xFF
+            val mr = (sm ushr 16) and 0xFF
+            val mg = (sm ushr 8) and 0xFF
+            val mb = sm and 0xFF
+            // Range-guard như chế độ landmark: cạnh sắc giữ nguyên gốc.
+            val diff = abs(((sr * 77 + sg * 150 + sb * 29) ushr 8) - ((mr * 77 + mg * 150 + mb * 29) ushr 8))
+            if (diff >= EDGE_HI) continue
+            var wq = ua * amount256 / 255
+            if (diff > EDGE_LO) wq = wq * (EDGE_HI - diff) / (EDGE_HI - EDGE_LO)
+            if (wq <= 0) continue
+            val rr = sr + (((mr - sr) * wq) shr 8)
+            val gg = sg + (((mg - sg) * wq) shr 8)
+            val bb = sb + (((mb - sb) * wq) shr 8)
+            srcBuf[i] = (s and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
+        }
+
+        val out = srcBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        out.setPixels(srcBuf, 0, bw, bx, by, bw, bh)
+        smoothed.recycle()
+        out
+    }.getOrElse { srcBitmap }
+}
+
+/** Sáng da THỦ CÔNG theo vùng quét tay, KHÔNG cần landmark — screen-blend như chế độ
+ *  landmark nhưng trọng số chỉ là alpha mặt nạ * cường độ (không SkinGate/oval). */
+private fun applyManualBrighten(srcBitmap: Bitmap, amount: Float, userMask: Bitmap): Bitmap {
+    return runCatching {
+        val bounds = maskBounds(userMask) ?: return@runCatching srcBitmap
+        val bx = bounds.left
+        val by = bounds.top
+        val bw = bounds.width()
+        val bh = bounds.height()
+
+        val area = bw * bh
+        val srcBuf = IntArray(area).also { srcBitmap.getPixels(it, 0, bw, bx, by, bw, bh) }
+        val userBuf = IntArray(area).also { userMask.getPixels(it, 0, bw, bx, by, bw, bh) }
+
+        val amount256 = (amount * BRIGHTEN_LIFT_MAX * 256f).toInt()
+        for (i in 0 until area) {
+            val ua = (userBuf[i] ushr 24) and 0xFF
+            if (ua == 0) continue
+            val p = srcBuf[i]
+            if ((p ushr 24) and 0xFF == 0) continue
+            val lift256 = ua * amount256 / 255
+            if (lift256 <= 0) continue
+            val r = (p ushr 16) and 0xFF
+            val g = (p ushr 8) and 0xFF
+            val b = p and 0xFF
+            val rr = r + (((255 - r) * lift256) shr 8)
+            val gg = g + (((255 - g) * lift256) shr 8)
+            val bb = b + (((255 - b) * lift256) shr 8)
+            srcBuf[i] = (p and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
+        }
+
+        val out = srcBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        out.setPixels(srcBuf, 0, bw, bx, by, bw, bh)
+        out
+    }.getOrElse { srcBitmap }
+}
+
+// Bước nhảy khi quét tìm khung bao alpha của mặt nạ (đổi tốc độ lấy sai số ≤ STRIDE px,
+// bù lại bằng cách nở khung thêm STRIDE).
+private const val MASK_SCAN_STRIDE = 4
+
+/**
+ * Khung bao vùng alpha > 0 của mặt nạ quét tay (quét theo lưới [MASK_SCAN_STRIDE] cho
+ * nhanh, nở thêm đúng stride để không cắt hụt mép). Trả về null khi mặt nạ rỗng.
+ */
+private fun maskBounds(mask: Bitmap): Rect? {
+    val w = mask.width
+    val h = mask.height
+    val px = IntArray(w * h).also { mask.getPixels(it, 0, w, 0, 0, w, h) }
+    var left = w
+    var top = h
+    var right = -1
+    var bottom = -1
+    var y = 0
+    while (y < h) {
+        val row = y * w
+        var x = 0
+        while (x < w) {
+            if ((px[row + x] ushr 24) and 0xFF > 0) {
+                if (x < left) left = x
+                if (x > right) right = x
+                if (y < top) top = y
+                if (y > bottom) bottom = y
+            }
+            x += MASK_SCAN_STRIDE
+        }
+        y += MASK_SCAN_STRIDE
+    }
+    if (right < 0) return null
+    return Rect(
+        (left - MASK_SCAN_STRIDE).coerceAtLeast(0),
+        (top - MASK_SCAN_STRIDE).coerceAtLeast(0),
+        (right + MASK_SCAN_STRIDE + 1).coerceAtMost(w),
+        (bottom + MASK_SCAN_STRIDE + 1).coerceAtMost(h),
+    )
 }
 
 /**
